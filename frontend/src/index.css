@@ -1,0 +1,254 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Atkinson+Hyperlegible:wght@400;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ACCESS.AI Accessible Design System */
+    --background: 210 20% 98%;
+    --foreground: 220 25% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 10%;
+
+    /* Accessible Blue - passes WCAG AA at 4.5:1 */
+    --primary: 210 100% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 20% 94%;
+    --secondary-foreground: 220 25% 15%;
+
+    --muted: 210 15% 92%;
+    --muted-foreground: 220 15% 40%;
+
+    --accent: 160 60% 40%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 65% 35%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 210 20% 85%;
+    --input: 210 20% 85%;
+    --ring: 210 100% 50%;
+
+    --radius: 0.75rem;
+
+    /* Accessibility-specific tokens */
+    --focus-ring-width: 3px;
+    --focus-ring-offset: 2px;
+    --min-touch-target: 48px;
+    --text-base-size: 1rem;
+
+    /* Sidebar */
+    --sidebar-background: 210 25% 96%;
+    --sidebar-foreground: 220 25% 15%;
+    --sidebar-primary: 210 100% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 90%;
+    --sidebar-accent-foreground: 220 25% 15%;
+    --sidebar-border: 210 20% 88%;
+    --sidebar-ring: 210 100% 50%;
+  }
+
+  .dark {
+    --background: 220 25% 8%;
+    --foreground: 210 20% 95%;
+
+    --card: 220 25% 12%;
+    --card-foreground: 210 20% 95%;
+
+    --popover: 220 25% 12%;
+    --popover-foreground: 210 20% 95%;
+
+    --primary: 210 100% 55%;
+    --primary-foreground: 220 25% 5%;
+
+    --secondary: 220 20% 18%;
+    --secondary-foreground: 210 20% 90%;
+
+    --muted: 220 20% 20%;
+    --muted-foreground: 210 15% 65%;
+
+    --accent: 160 55% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 85% 55%;
+    --warning-foreground: 220 25% 10%;
+
+    --border: 220 20% 22%;
+    --input: 220 20% 22%;
+    --ring: 210 100% 55%;
+
+    --sidebar-background: 220 25% 10%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 210 100% 55%;
+    --sidebar-primary-foreground: 220 25% 5%;
+    --sidebar-accent: 220 20% 16%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 220 20% 18%;
+    --sidebar-ring: 210 100% 55%;
+  }
+
+  /* High Contrast Mode */
+  .high-contrast {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 0%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+    --primary: 210 100% 30%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 0%;
+    --muted: 0 0% 90%;
+    --muted-foreground: 0 0% 20%;
+    --border: 0 0% 0%;
+    --ring: 210 100% 30%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', 'Atkinson Hyperlegible', system-ui, sans-serif;
+  }
+
+  /* Dyslexia-friendly font option */
+  .dyslexia-font {
+    font-family: 'Atkinson Hyperlegible', 'OpenDyslexic', sans-serif !important;
+    letter-spacing: 0.05em;
+    word-spacing: 0.1em;
+    line-height: 1.8;
+  }
+
+  /* Text size options */
+  .text-size-100 { font-size: 1rem; }
+  .text-size-125 { font-size: 1.25rem; }
+  .text-size-150 { font-size: 1.5rem; }
+  .text-size-175 { font-size: 1.75rem; }
+  .text-size-200 { font-size: 2rem; }
+
+  /* Enhanced focus states for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-[3px] ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Skip link for keyboard navigation */
+  .skip-link {
+    @apply absolute -top-10 left-4 z-50 bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium;
+    transition: top 0.2s;
+  }
+
+  .skip-link:focus {
+    @apply top-4;
+  }
+}
+
+@layer components {
+  /* Large touch target buttons */
+  .touch-target {
+    min-height: var(--min-touch-target);
+    min-width: var(--min-touch-target);
+  }
+
+  /* Voice button pulse animation */
+  @keyframes voice-pulse {
+    0%, 100% {
+      box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 12px hsl(var(--primary) / 0);
+    }
+  }
+
+  .voice-active {
+    animation: voice-pulse 1.5s ease-in-out infinite;
+  }
+
+  /* Smooth transitions for accessibility settings */
+  .transition-accessibility {
+    transition: font-size 0.3s ease, letter-spacing 0.3s ease, line-height 0.3s ease;
+  }
+
+  /* Card hover effects */
+  .card-interactive {
+    @apply transition-all duration-200;
+  }
+
+  .card-interactive:hover {
+    @apply shadow-lg -translate-y-1;
+  }
+
+  .card-interactive:focus-within {
+    @apply ring-2 ring-ring ring-offset-2;
+  }
+
+  /* Gradient backgrounds */
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(210 100% 40%) 0%, hsl(210 100% 50%) 100%);
+  }
+
+  .gradient-accent {
+    background: linear-gradient(135deg, hsl(160 60% 35%) 0%, hsl(160 60% 45%) 100%);
+  }
+
+  .gradient-hero {
+    background: linear-gradient(135deg, hsl(210 30% 96%) 0%, hsl(210 40% 92%) 100%);
+  }
+
+  /* Accessible feature cards */
+  .feature-card {
+    @apply relative overflow-hidden rounded-xl bg-card p-6 shadow-sm border border-border/50;
+  }
+
+  .feature-card::before {
+    content: '';
+    @apply absolute top-0 left-0 w-1 h-full bg-primary;
+  }
+}
+
+@layer utilities {
+  /* Screen reader only */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /* Reduce motion for vestibular disorders */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
