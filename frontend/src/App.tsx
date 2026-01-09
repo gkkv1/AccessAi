@@ -11,30 +11,52 @@ import DocumentsPage from "./pages/DocumentsPage";
 import FormsPage from "./pages/FormsPage";
 import TranscribePage from "./pages/TranscribePage";
 import NotFound from "./pages/NotFound";
+import { AuthProvider } from "@/contexts/AuthContext";
+import PrivateRoute from "@/components/PrivateRoute";
+import LoginPage from "./pages/auth/LoginPage";
+import RegisterPage from "./pages/auth/RegisterPage";
+import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
+import VerifyEmailPage from "./pages/auth/VerifyEmailPage";
+import { Navigate } from "react-router-dom";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <AccessibilityProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <div className="min-h-screen bg-background">
-            <Header />
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/search" element={<SearchPage />} />
-              <Route path="/documents" element={<DocumentsPage />} />
-              <Route path="/forms" element={<FormsPage />} />
-              <Route path="/transcribe" element={<TranscribePage />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </div>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AccessibilityProvider>
+    <AuthProvider>
+      <AccessibilityProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <div className="min-h-screen bg-background text-foreground">
+              <Header />
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/" element={<Index />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/verify-email" element={<VerifyEmailPage />} />
+
+                {/* Protected Routes */}
+                <Route element={<PrivateRoute />}>
+                  <Route path="/search" element={<SearchPage />} />
+                  <Route path="/documents" element={<DocumentsPage />} />
+                  <Route path="/forms" element={<FormsPage />} />
+                  <Route path="/transcribe" element={<TranscribePage />} />
+                  <Route path="/dashboard" element={<Navigate to="/" replace />} />
+                </Route>
+
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </div>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AccessibilityProvider>
+    </AuthProvider>
   </QueryClientProvider>
 );
 

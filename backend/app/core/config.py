@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str
+
+    # Security
+    SECRET_KEY: str = "DEV_SECRET_KEY_CHANGE_IN_PROD_12345"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     class Config:
         env_file = ".env"

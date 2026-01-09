@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,16 +10,23 @@ interface SearchBarProps {
   placeholder?: string;
   isLoading?: boolean;
   className?: string;
+  initialQuery?: string;
 }
 
-export function SearchBar({ 
-  onSearch, 
-  placeholder = "Ask a question about workplace policies...", 
+export function SearchBar({
+  onSearch,
+  placeholder = "Ask a question about workplace policies...",
   isLoading = false,
-  className 
+  className,
+  initialQuery = ''
 }: SearchBarProps) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [isListening, setIsListening] = useState(false);
+
+  // Sync with prop changes (e.g. from URL or Voice Search in parent)
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +50,7 @@ export function SearchBar({
         isListening ? 'border-primary shadow-lg' : 'border-border hover:border-primary/50'
       )}>
         <Search className="ml-4 h-5 w-5 text-muted-foreground shrink-0" aria-hidden="true" />
-        
+
         <Input
           type="text"
           value={query}
@@ -55,11 +62,11 @@ export function SearchBar({
         />
 
         <div className="flex items-center gap-2 shrink-0">
-          <VoiceInput 
+          <VoiceInput
             onTranscript={handleVoiceTranscript}
             onListeningChange={setIsListening}
           />
-          
+
           <Button
             type="submit"
             size="icon"
@@ -77,7 +84,7 @@ export function SearchBar({
       </div>
 
       <p className="mt-3 text-sm text-muted-foreground text-center" id="search-hint">
-        Press <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">Enter</kbd> to search 
+        Press <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">Enter</kbd> to search
         or use voice input
       </p>
     </form>
