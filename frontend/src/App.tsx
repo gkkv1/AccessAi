@@ -12,6 +12,7 @@ import FormsPage from "./pages/FormsPage";
 import TranscribePage from "./pages/TranscribePage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { FocusProvider } from "@/contexts/FocusContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
@@ -26,35 +27,37 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <AccessibilityProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <div className="min-h-screen bg-background text-foreground">
-              <Header />
-              <Routes>
-                {/* Public Routes */}
-                <Route path="/" element={<Index />} />
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
-                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
-                <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <FocusProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <div className="min-h-screen bg-background text-foreground">
+                <Header />
+                <Routes>
+                  {/* Public Routes */}
+                  <Route path="/" element={<Index />} />
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/register" element={<RegisterPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
+                  <Route path="/verify-email" element={<VerifyEmailPage />} />
 
-                {/* Protected Routes */}
-                <Route element={<PrivateRoute />}>
-                  <Route path="/search" element={<SearchPage />} />
-                  <Route path="/documents" element={<DocumentsPage />} />
-                  <Route path="/forms" element={<FormsPage />} />
-                  <Route path="/transcribe" element={<TranscribePage />} />
-                  <Route path="/dashboard" element={<Navigate to="/" replace />} />
-                </Route>
+                  {/* Protected Routes */}
+                  <Route element={<PrivateRoute />}>
+                    <Route path="/search" element={<SearchPage />} />
+                    <Route path="/documents" element={<DocumentsPage />} />
+                    <Route path="/forms" element={<FormsPage />} />
+                    <Route path="/transcribe" element={<TranscribePage />} />
+                    <Route path="/dashboard" element={<Navigate to="/" replace />} />
+                  </Route>
 
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </div>
-          </BrowserRouter>
-        </TooltipProvider>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </div>
+            </BrowserRouter>
+          </TooltipProvider>
+        </FocusProvider>
       </AccessibilityProvider>
     </AuthProvider>
   </QueryClientProvider>

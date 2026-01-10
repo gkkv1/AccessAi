@@ -21,8 +21,15 @@ import {
   Lightbulb,
   ListTodo,
   MoreVertical,
-  Maximize2
+  Maximize2,
+  Smile,
+  AlertTriangle,
+  Zap,
+  Hand
 } from 'lucide-react';
+import { useFocus } from '@/contexts/FocusContext';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -33,6 +40,7 @@ interface TranscriptSegment {
   end: number;
   speaker: string;
   text: string;
+  sentiment?: 'neutral' | 'positive' | 'urgent' | 'question';
 }
 
 interface ActionItem {
@@ -51,17 +59,17 @@ const MEETING_METADATA = {
 };
 
 const MOCK_SCRIPT: TranscriptSegment[] = [
-  { id: '1', start: 0, end: 4, speaker: 'Sarah', text: "Good morning everyone. Thanks for joining today's session on Q1 compliance updates." },
-  { id: '2', start: 5, end: 9, speaker: 'Sarah', text: "We have a lot to cover, specifically regarding the new accessibility standards we need to meet by March." },
-  { id: '3', start: 10, end: 14, speaker: 'John', text: "Hi Sarah, quick question. Does this include the new WCAG 2.2 guidelines for mobile apps?" },
-  { id: '4', start: 15, end: 19, speaker: 'Sarah', text: "Yes, exactly, John. That's actually our first agenda item. Mobile compliance is now mandatory." },
-  { id: '5', start: 20, end: 25, speaker: 'Mike', text: "That's going to require some refactoring of the navigation components. I'll need to look into our contrast ratios." },
-  { id: '6', start: 26, end: 32, speaker: 'Emily', text: "From a product side, do we have a timeline for when these designs need to be finalized? We have the sprint planning on Tuesday." },
-  { id: '7', start: 33, end: 38, speaker: 'Sarah', text: "Great point. Let's aim to have the audit complete by Feb 15th. That gives us two weeks for remediation." },
-  { id: '8', start: 39, end: 44, speaker: 'Sarah', text: "Also, please note the new Leave Policy changes effective Feb 1st. Make sure your teams are aware." },
-  { id: '9', start: 45, end: 50, speaker: 'John', text: "I'll send out the memo regarding the leave policy tomorrow morning to the whole organization." },
-  { id: '10', start: 51, end: 55, speaker: 'Sarah', text: "Perfect. And Mike, can you lead the accessibility audit for the mobile app?" },
-  { id: '11', start: 56, end: 60, speaker: 'Mike', text: "Sure, I'll take that update. I'll schedule a review with the design team next week." },
+  { id: '1', start: 0, end: 4, speaker: 'Sarah', text: "Good morning everyone. Thanks for joining today's session on Q1 compliance updates.", sentiment: 'positive' },
+  { id: '2', start: 5, end: 9, speaker: 'Sarah', text: "We have a lot to cover, specifically regarding the new accessibility standards we need to meet by March.", sentiment: 'urgent' },
+  { id: '3', start: 10, end: 14, speaker: 'John', text: "Hi Sarah, quick question. Does this include the new WCAG 2.2 guidelines for mobile apps?", sentiment: 'question' },
+  { id: '4', start: 15, end: 19, speaker: 'Sarah', text: "Yes, exactly, John. That's actually our first agenda item. Mobile compliance is now mandatory.", sentiment: 'neutral' },
+  { id: '5', start: 20, end: 25, speaker: 'Mike', text: "That's going to require some refactoring of the navigation components. I'll need to look into our contrast ratios.", sentiment: 'neutral' },
+  { id: '6', start: 26, end: 32, speaker: 'Emily', text: "From a product side, do we have a timeline for when these designs need to be finalized? We have the sprint planning on Tuesday.", sentiment: 'question' },
+  { id: '7', start: 33, end: 38, speaker: 'Sarah', text: "Great point. Let's aim to have the audit complete by Feb 15th. That gives us two weeks for remediation.", sentiment: 'positive' },
+  { id: '8', start: 39, end: 44, speaker: 'Sarah', text: "Also, please note the new Leave Policy changes effective Feb 1st. Make sure your teams are aware.", sentiment: 'urgent' },
+  { id: '9', start: 45, end: 50, speaker: 'John', text: "I'll send out the memo regarding the leave policy tomorrow morning to the whole organization.", sentiment: 'positive' },
+  { id: '10', start: 51, end: 55, speaker: 'Sarah', text: "Perfect. And Mike, can you lead the accessibility audit for the mobile app?", sentiment: 'neutral' },
+  { id: '11', start: 56, end: 60, speaker: 'Mike', text: "Sure, I'll take that update. I'll schedule a review with the design team next week.", sentiment: 'positive' },
 ];
 
 const KEY_CONCEPTS = [
@@ -88,7 +96,11 @@ export default function TranscribePage() {
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
   const [currentCaption, setCurrentCaption] = useState<TranscriptSegment | null>(null);
   const [actionItems, setActionItems] = useState<ActionItem[]>(INITIAL_ACTION_ITEMS);
+
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSignLanguage, setShowSignLanguage] = useState(false);
+
+  const { isFocusMode } = useFocus();
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,7 +140,8 @@ export default function TranscribePage() {
 
       // 2. Populate Data (The "Review" View renders based on this)
       setTranscript(MOCK_SCRIPT);
-      setElapsedTime(MOCK_SCRIPT[MOCK_SCRIPT.length - 1].end);
+      setElapsedTime(0); // Start from beginning for playback
+      setIsMeetingActive(true); // Auto-play
 
       toast.success("Transcription Complete", {
         description: "Generated from demo simulation logic."
@@ -144,35 +157,54 @@ export default function TranscribePage() {
     setCurrentCaption(null);
   };
 
-  // Timer & Playback Logic (Only for Live Mode)
+  // Timer & Playback Logic (Shared for Live & Review)
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
-    if (viewMode === 'live' && isMeetingActive) {
+    if ((viewMode === 'live' || viewMode === 'review') && isMeetingActive) {
       interval = setInterval(() => {
-        setElapsedTime(prev => prev + 1);
-
-        const activeSegment = MOCK_SCRIPT.find(
-          s => elapsedTime >= s.start && elapsedTime <= s.end
-        );
-
-        setCurrentCaption(activeSegment || null);
-
-        if (activeSegment) {
-          setTranscript(prev => {
-            if (!prev.find(p => p.id === activeSegment.id)) {
-              return [...prev, activeSegment];
-            }
+        setElapsedTime(prev => {
+          // Loop or stop at end? Let's just stop for now or loop mock script
+          const nextTime = prev + 1;
+          // If review mode and end reached, stop
+          const maxDuration = MOCK_SCRIPT[MOCK_SCRIPT.length - 1].end + 5;
+          if (viewMode === 'review' && nextTime > maxDuration) {
+            setIsMeetingActive(false);
             return prev;
-          });
-        }
+          }
+          return nextTime;
+        });
 
-        if (elapsedTime > 65) {
-          setIsMeetingActive(false);
-          toast.success("Meeting Simulation Complete");
-        }
-
+        // Use a functional update to get the LATEST elapsedTime if needed, 
+        // but here we rely on the re-render cycle or just check next toggle.
+        // Actually best to lookup based on new time.
+        // For simplicity in this effect, we read the state next render.
+        // But to sync currentCaption perfectly we can do it here if we had the value.
+        // Let's keep the find logic but be aware of closure staleness if not careful.
+        // relying on dependency array [elapsedTime] which restarts interval every tick is fine but inefficient.
+        // Better:
       }, 1000);
+    }
+
+    // Separate effect for syncing Caption to Time (efficient)
+    const activeSegment = MOCK_SCRIPT.find(
+      s => elapsedTime >= s.start && elapsedTime <= s.end
+    );
+    setCurrentCaption(activeSegment || null);
+
+    // Live Mode specific: Accumulate transcript
+    if (viewMode === 'live' && activeSegment) {
+      setTranscript(prev => {
+        if (!prev.find(p => p.id === activeSegment.id)) {
+          return [...prev, activeSegment];
+        }
+        return prev;
+      });
+    }
+
+    // Auto-stop for live mode simulation
+    if (viewMode === 'live' && elapsedTime > 65) {
+      setIsMeetingActive(false);
     }
 
     return () => clearInterval(interval);
@@ -312,8 +344,19 @@ export default function TranscribePage() {
             )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {/* Sign Language Toggle */}
           {viewMode === 'live' && (
+            <div className="hidden md:flex items-center space-x-2 mr-2 bg-muted/20 p-1.5 rounded-lg border">
+              <Switch id="sign-lang" checked={showSignLanguage} onCheckedChange={setShowSignLanguage} />
+              <Label htmlFor="sign-lang" className="flex items-center gap-1.5 text-xs font-medium cursor-pointer">
+                <Hand className="h-3.5 w-3.5" />
+                Sign Language
+              </Label>
+            </div>
+          )}
+
+          {(viewMode === 'live' || viewMode === 'review') && (
             <Button variant={isMeetingActive ? "secondary" : "default"} onClick={() => setIsMeetingActive(!isMeetingActive)}>
               {isMeetingActive ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
               {isMeetingActive ? "Pause" : "Resume"}
@@ -326,10 +369,10 @@ export default function TranscribePage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
 
         {/* Main Content: Video/Captions & Transcript */}
-        <div className="lg:col-span-2 flex flex-col gap-4 min-h-0">
+        <div className={cn("flex flex-col gap-4 min-h-0 transition-all duration-500", isFocusMode ? "lg:col-span-3" : "lg:col-span-2")}>
 
           {/* 1. Video Mockup / Live Caption Area */}
-          <div className="relative bg-black rounded-xl overflow-hidden aspect-video shrink-0 shadow-lg group">
+          <div className="relative bg-black rounded-xl overflow-hidden h-64 shrink-0 shadow-lg group">
             <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
               {/* Visualizer */}
               <div className="flex items-center gap-1">
@@ -343,27 +386,41 @@ export default function TranscribePage() {
               </div>
             </div>
 
-            {/* Live Caption Overlay (Only show if we have a current caption or waiting in live mode) */}
-            <div className="absolute bottom-8 left-8 right-8 transition-all duration-300">
+            {/* Live Caption Overlay */}
+            <div className="absolute bottom-4 left-4 right-4 transition-all duration-300 flex justify-center">
               {currentCaption ? (
-                <div className="bg-black/80 backdrop-blur-sm p-4 rounded-lg border-l-4 border-primary shadow-2xl">
+                <div className="bg-black/80 backdrop-blur-sm p-3 rounded-lg border-l-4 border-primary shadow-2xl max-w-3xl w-full">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-primary font-bold text-sm uppercase tracking-wider">{currentCaption.speaker}</span>
-                    <span className="text-slate-400 text-xs">{formatTime(currentCaption.start)}</span>
+                    <span className="text-primary font-bold text-xs uppercase tracking-wider">{currentCaption.speaker}</span>
+                    <span className="text-slate-400 text-[10px]">{formatTime(currentCaption.start)}</span>
                   </div>
-                  <p className="text-white text-lg md:text-xl font-medium leading-relaxed">
+                  <p className="text-white text-base md:text-lg font-medium leading-relaxed">
                     {currentCaption.text}
                   </p>
                 </div>
-              ) : (viewMode === 'live' && isMeetingActive) ? (
+              ) : ((viewMode === 'live' || viewMode === 'review') && isMeetingActive) ? (
                 <div className="bg-black/60 backdrop-blur-sm p-3 rounded-lg inline-block">
                   <p className="text-slate-300 text-sm flex items-center">
                     <Mic className="h-4 w-4 mr-2 animate-pulse" />
-                    Listening...
+                    {viewMode === 'live' ? "Listening..." : "Playing Simulation..."}
                   </p>
                 </div>
               ) : null}
             </div>
+            {/* Sign Language Avatar Overlay (PIP) */}
+            {showSignLanguage && viewMode === 'live' && (
+              <div className="absolute top-2 right-2 w-20 h-28 md:w-28 md:h-36 bg-slate-800 rounded-lg border border-primary shadow-xl overflow-hidden animate-in zoom-in-50 fade-in duration-300 z-20">
+                <div className="absolute top-0 left-0 right-0 bg-black/60 p-0.5 text-[8px] text-center text-white font-mono uppercase tracking-wider">
+                  Sign Interpreter
+                </div>
+                {/* Placeholder for 3D Avatar */}
+                <img
+                  src="/avatar_placeholder.png"
+                  alt="AI Sign Language Interpreter"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
           </div>
 
           {/* 2. Transcript Search & List */}
@@ -399,25 +456,48 @@ export default function TranscribePage() {
                   </div>
                 ) : (
                   filteredTranscript.map((segment) => (
-                    <div key={segment.id} className="flex gap-4 group">
+                    <div
+                      key={segment.id}
+                      className={cn(
+                        "flex gap-4 group p-3 rounded-lg transition-colors border-l-2 border-transparent",
+                        currentCaption?.id === segment.id
+                          ? "bg-primary/10 border-primary"
+                          : "hover:bg-muted/50"
+                      )}
+                    >
                       <div className="w-12 shrink-0 text-xs text-muted-foreground pt-1.5 font-mono text-right">
                         {formatTime(segment.start)}
                       </div>
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm text-primary">{segment.speaker}</span>
+                          {/* Sentiment Badge */}
+                          {segment.sentiment && (
+                            <Badge variant="outline" className={cn(
+                              "text-[10px] px-1.5 h-5",
+                              segment.sentiment === 'urgent' && "text-red-600 border-red-200 bg-red-50",
+                              segment.sentiment === 'positive' && "text-green-600 border-green-200 bg-green-50",
+                              segment.sentiment === 'question' && "text-blue-600 border-blue-200 bg-blue-50"
+                            )}>
+                              {segment.sentiment === 'urgent' && <AlertTriangle className="h-3 w-3 mr-1" />}
+                              {segment.sentiment === 'positive' && <Smile className="h-3 w-3 mr-1" />}
+                              {segment.sentiment === 'question' && <Lightbulb className="h-3 w-3 mr-1" />}
+                              {segment.sentiment}
+                            </Badge>
+                          )}
                         </div>
-                        <p className="text-foreground/90 leading-relaxed text-base">
-                          {searchQuery ? (
-                            segment.text.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
-                              part.toLowerCase() === searchQuery.toLowerCase()
-                                ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-900 text-inherit px-0.5 rounded">{part}</mark>
-                                : part
-                            )
-                          ) : segment.text}
-                        </p>
                       </div>
+                      <p className="text-foreground/90 leading-relaxed text-base">
+                        {searchQuery ? (
+                          segment.text.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
+                            part.toLowerCase() === searchQuery.toLowerCase()
+                              ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-900 text-inherit px-0.5 rounded">{part}</mark>
+                              : part
+                          )
+                        ) : segment.text}
+                      </p>
                     </div>
+
                   ))
                 )}
                 <div id="transcript-end" />
@@ -426,8 +506,8 @@ export default function TranscribePage() {
           </Card>
         </div>
 
-        {/* Sidebar: Insights */}
-        <div className="lg:col-span-1 flex flex-col gap-6 min-h-0 overflow-y-auto">
+        {/* Sidebar: Insights - HIDDEN IN FOCUS MODE */}
+        <div className={cn("flex flex-col gap-6 min-h-0 overflow-y-auto transition-all duration-500", isFocusMode ? "hidden w-0 opacity-0" : "lg:col-span-1 border-l pl-6")}>
 
           {/* Key Concepts */}
           <Card className="p-5 shadow-sm">
@@ -493,6 +573,6 @@ export default function TranscribePage() {
         </div>
 
       </div>
-    </main>
+    </main >
   );
 }
