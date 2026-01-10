@@ -50,11 +50,10 @@ export function Header() {
 
       <div className="container flex h-16 items-center justify-between">
         {/* Logo */}
+        {/* Logo */}
         <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary">
-            <span className="text-primary-foreground font-bold text-sm">AI</span>
-          </div>
-          <span>ACCESS<span className="text-primary">.AI</span></span>
+          <img src="/AccessAILogo.jpeg" alt="Access AI Logo" className="h-12 w-auto rounded-lg object-contain" />
+          {/* <span>ACCESS<span className="text-primary">.AI</span></span> */}
         </Link>
 
         {/* Desktop Navigation */}
