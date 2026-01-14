@@ -73,7 +73,24 @@ export default function RegisterPage() {
         try {
             // Exclude 'terms' from the payload sent to backend
             const { terms, ...registerData } = data;
-            const response = await api.post('/auth/register', registerData);
+
+            // Smart Simulation: Generate Device Token if biometrics enabled
+            let deviceToken = localStorage.getItem('access_ai_face_token');
+            if (data.biometric_registered || data.face_id_registered) {
+                if (!deviceToken) {
+                    // Simple random token generator
+                    deviceToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                    localStorage.setItem('access_ai_face_token', deviceToken);
+                }
+            }
+
+            // Include the token in the payload
+            const payload = {
+                ...registerData,
+                face_id_data: deviceToken
+            };
+
+            const response = await api.post('/auth/register', payload);
 
             // Auto login after register
             const loginResponse = await api.post('/auth/login', {

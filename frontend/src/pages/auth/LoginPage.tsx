@@ -57,15 +57,27 @@ export default function LoginPage() {
         }
     };
 
-    // Simulate Biometric Login (Uses default demo user for simulation)
+    // Real Biometric Login (1:N Identification)
     const handleBiometricSuccess = async () => {
+        console.log("👆 handleBiometricSuccess triggered!");
         setIsLoading(true);
+
+        // Smart Simulation: Read Device Token
+        const deviceToken = localStorage.getItem('access_ai_face_token');
+        console.log("🔑 Device Token read:", deviceToken);
+
+        if (!deviceToken) {
+            console.warn("❌ No device token found.");
+            toast.error("Biometrics not set up on this device. Please login with password first.");
+            setIsLoading(false);
+            return;
+        }
+
         try {
-            // In a real app, we'd exchange a signed biometric challenge.
-            // Here, we just log in as the demo user for simulation purposes.
-            const response = await api.post('/auth/login', {
-                email: 'demo@access.ai',
-                password: 'password123',
+            // Send the unique device token for identification
+            const response = await api.post('/auth/login/biometric', {
+                // Email is optional now. Backend finds the user.
+                face_signature: deviceToken,
             });
             const { access_token, user } = response.data;
 
@@ -76,8 +88,9 @@ export default function LoginPage() {
                 navigate('/dashboard');
             }, 500);
 
-        } catch (error) {
-            toast.error("Biometric verification failed");
+        } catch (error: any) {
+            console.error(error);
+            toast.error(error.response?.data?.detail || "Biometric verification failed");
             setIsLoading(false);
         }
     };

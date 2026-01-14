@@ -15,15 +15,19 @@ class UserCreate(UserBase):
     confirm_password: str
     biometric_registered: bool = False
     face_id_registered: bool = False
+    face_id_data: Optional[str] = None # Simulated unique device token
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class BiometricLogin(BaseModel):
+    email: Optional[EmailStr] = None
+    face_signature: str # The signature/token from FaceIO or WebAuthn
+
 class UserResponse(UserBase):
     id: uuid.UUID
     is_active: bool
-    email_verified: bool
     email_verified: bool
     created_at: datetime
     biometric_registered: bool = False

@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { SearchBar } from '@/components/SearchBar';
 import { Button } from '@/components/ui/button';
+import { SmartReader } from '@/components/SmartReader';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -17,7 +18,9 @@ import {
   Loader2,
   Mic,
   Check,
-  X
+  X,
+  Sparkles,
+  Pause
 } from 'lucide-react';
 import { endpoints } from '@/lib/api';
 import { toast } from 'sonner';
@@ -54,7 +57,7 @@ export default function SearchPage() {
       setSimplifiedItem({
         id: "temp-id",
         original: variables, // The snippet sent to be simplified
-        simplified: data.simplified
+        simplified: data.simplified_text
       });
     }
   });
@@ -106,65 +109,20 @@ export default function SearchPage() {
   };
 
 
+  // const navigate = useNavigate(); // Not needed anymore
+
   const handleReadFull = (result: any) => {
-    // Simulate fetching full document content - LARGE MOCK
+    // Open Smart View Modal in-place
+    const docId = result.document_id || result.id;
+    const page = result.page || 1;
+
+    // We construct a partial object that SmartReader will use to fetch full content
     setViewingDoc({
-      id: result.id,
+      id: docId,
       title: result.title,
-      content: `
-SECTION 1: PURPOSE AND SCOPE
-This policy establishes the guidelines and procedures for Parental Leave at [Company Name]. We are committed to supporting employees as they balance their career with the responsibilities of family life. This policy applies to all full-time regular employees who have completed at least 12 months of continuous service.
-
-SECTION 2: DEFINITIONS
-2.1 "Parent" is defined as a biological parent on the birth of a child, an adoptive parent on the placement of a child for adoption, or a foster parent on the placement of a child for foster care.
-2.2 "Qualifying Event" refers to the birth of a child or the placement of a child for adoption or foster care.
-
-SECTION 3: ELIGIBILITY CRITERIA
-Employees are eligible for Paid Parental Leave if they meet the following criteria:
-- Must be a full-time regular employee.
-- Must have completed 12 months of continuous service prior to the date of the Qualifying Event.
-- Must be in good standing with the company at the time of the request.
-
-SECTION 4: LEAVE ENTITLEMENT
-4.1 Duration: Eligible employees are entitled to up to six (6) months (26 weeks) of 100% paid leave following a Qualifying Event.
-4.2 Schedule: Leave may be taken as a single continuous block or intermittently in increments of no less than two (2) weeks, subject to manager approval and business needs.
-4.3 Timing: All leave must be completed within twelve (12) months of the Qualifying Event. Any unused leave remaining after this period will be forfeited.
-
-SECTION 5: COORDINATION WITH OTHER BENEFITS
-5.1 Family and Medical Leave Act (FMLA): Paid Parental Leave runs concurrently with FMLA leave.
-5.2 Short-Term Disability (STD): For birthing parents, Paid Parental Leave begins after any medically authorized period of Short-Term Disability has concluded.
-5.3 State Paid Leave Laws: In states with statutory paid family leave programs, the company will supplement the state benefit to ensure the employee receives 100% of their regular base pay.
-
-SECTION 6: BENEFITS CONTINUATION
-During the paid leave period, employees will continue to receive:
-- Health, dental, and vision insurance coverage on the same terms as if they were working.
-- Accrual of PTO and vacation time.
-- Eligibility for annual bonuses (prorated based on active service if applicable).
-- 401(k) matching contributions based on the paid leave earnings.
-
-SECTION 7: REQUEST PROCEDURE
-7.1 Notice: Employees should provide at least 30 days' advance notice of their intent to take leave, when foreseeable.
-7.2 Documentation: Supporting documentation (e.g., birth certificate, adoption decree) may be required within 30 days of the Qualifying Event.
-7.3 System entry: Requests must be submitted via the HR Portal under "Time Off > Parental Leave".
-
-SECTION 8: REINSTATEMENT
-8.1 Job Protection: Upon return from Parental Leave, employees are entitled to be reinstated to the same position or an equivalent position with equivalent pay, benefits, and other terms and conditions of employment.
-8.2 Retaliation Prohibited: The company strictly prohibits retaliation against any employee for requesting or taking Parental Leave.
-
-SECTION 9: EXCEPTIONS
-Any exceptions to this policy must be approved in writing by the Chief People Officer. The company reserves the right to modify or terminate this policy at any time.
-
----
-APPENDIX A: FAQ
-
-Q: Can both parents take leave if they both work for the company?
-A: Yes, each eligible employee is entitled to their own separate bank of Parental Leave.
-
-Q: Does this cover surrogacy?
-A: Yes, parents welcoming a child via surrogacy are covered under the "New Parent" provisions.
-
-[... End of Policy Document ...]`
-    });
+      content: "", // will be fetched by SmartReader
+      page: page, // Custom info to pass to initialPage
+    } as any);
   };
 
   return (
@@ -399,79 +357,103 @@ A: Yes, parents welcoming a child via surrogacy are covered under the "New Paren
 
       {/* Feature 2: High-Accessibility Simplify Dialog */}
       <Dialog open={!!simplifiedItem} onOpenChange={(open) => !open && setSimplifiedItem(null)}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-              <MessageSquare className="h-6 w-6 text-primary" />
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b shrink-0 bg-muted/20">
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Sparkles className="h-5 w-5 text-primary" />
               Simplified Summary
             </DialogTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              AI-generated easy-to-read version of the selected text.
+            </p>
           </DialogHeader>
-          <div className="space-y-6 py-4">
-            <div className="p-4 bg-muted/50 rounded-lg border">
-              <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">Original Text</h4>
-              <p className="text-sm text-foreground/70">{simplifiedItem?.original}</p>
+
+          <div className="flex-1 overflow-y-auto p-6 bg-background">
+            {/* Original (Collapsible/Small) */}
+            <div className="mb-6 p-4 bg-muted/30 rounded-lg border text-sm text-foreground/60">
+              <h4 className="font-semibold uppercase text-xs tracking-wider mb-2 opacity-70">Original Snippet</h4>
+              <p className="italic line-clamp-3">{simplifiedItem?.original}</p>
             </div>
 
-            <div className="p-6 bg-primary/5 rounded-xl border border-primary/20 shadow-sm">
-              <h4 className="text-sm font-semibold text-primary uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Check className="h-4 w-4" />
-                Easy to Read Version
-              </h4>
-              <p className="text-lg font-medium leading-relaxed text-foreground">
-                {simplifiedItem?.simplified}
-              </p>
-            </div>
+            {/* Simplified Content with Custom Formatter */}
+            <div className="prose prose-slate dark:prose-invert max-w-none leading-relaxed space-y-3">
+              {simplifiedItem && simplifiedItem.simplified.split('\n').map((line, i) => {
+                const cleanLine = line.trim();
+                if (!cleanLine) return <br key={i} />;
 
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setSimplifiedItem(null)}>
-                Close
-              </Button>
+                // Handle Bullet Points
+                if (cleanLine.startsWith('- ') || cleanLine.startsWith('• ')) {
+                  const content = cleanLine.substring(2);
+                  // Parse Bold in bullets
+                  const parts = content.split(/(\*\*.*?\*\*)/g).map((part, j) => {
+                    if (part.startsWith('**') && part.endsWith('**')) {
+                      return <strong key={j} className="text-foreground font-bold">{part.slice(2, -2)}</strong>;
+                    }
+                    return part;
+                  });
+                  return (
+                    <div key={i} className="flex gap-2 items-start pl-2">
+                      <span className="text-primary mt-1.5 shrink-0">•</span>
+                      <span>{parts}</span>
+                    </div>
+                  );
+                }
+
+                // Handle Regular Lines (Headers/Paragraphs)
+                const parts = cleanLine.split(/(\*\*.*?\*\*)/g).map((part, j) => {
+                  if (part.startsWith('**') && part.endsWith('**')) {
+                    return <strong key={j} className="text-foreground font-bold text-lg block mt-4 mb-2 first:mt-0">{part.slice(2, -2)}</strong>;
+                  }
+                  return part;
+                });
+
+                return <p key={i} className="text-foreground/90">{parts}</p>;
+              })}
+            </div>
+          </div>
+
+          <div className="p-4 border-t bg-muted/10 shrink-0 flex justify-between items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => {
+              if (simplifiedItem) {
+                navigator.clipboard.writeText(simplifiedItem.simplified);
+                toast.success("Copied to clipboard");
+              }
+            }}>Copy Text</Button>
+
+            <div className="flex gap-2">
               <Button
-                onClick={() => simplifiedItem && speakText(simplifiedItem.simplified, 'simplified')}
+                variant={speaking === 'simplified' ? "default" : "secondary"}
+                onClick={() => {
+                  if (!simplifiedItem) return;
+                  // Clean text for TTS: remove markdown bold and list markers
+                  const textToRead = simplifiedItem.simplified
+                    .replace(/\*\*/g, '')
+                    .replace(/^[-•]\s*/gm, '')
+                    .trim();
+                  speakText(textToRead, 'simplified');
+                }}
               >
-                <Volume2 className="h-4 w-4 mr-2" />
-                Read Simplified
+                {speaking === 'simplified' ? <Pause className="h-4 w-4 mr-2" /> : <Volume2 className="h-4 w-4 mr-2" />}
+                {speaking === 'simplified' ? 'Stop Reading' : 'Read Aloud'}
               </Button>
+              <Button onClick={() => setSimplifiedItem(null)}>Close</Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Feature 2: Document Preview Dialog */}
-      <Dialog open={!!viewingDoc} onOpenChange={(open) => !open && setViewingDoc(null)}>
-        <DialogContent className="sm:max-w-4xl h-[80vh] flex flex-col">
-          <DialogHeader className="pb-4 border-b">
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <FileText className="h-5 w-5 text-primary" />
-              Document Viewer
-            </DialogTitle>
-          </DialogHeader>
+      {/* Feature 2: High-Accessibility Simplify Dialog */}
+      {/* ... keeping simplify dialog as is if needed, or removing if SmartReader covers it ... */}
 
-          <div className="flex-1 overflow-y-auto bg-muted/10 rounded-md mt-0">
-            <div className="max-w-3xl mx-auto bg-card shadow-sm min-h-full p-8 md:p-12">
-              {/* Document Header Simulation */}
-              <div className="mb-8 border-b pb-6">
-                <div className="text-sm text-muted-foreground uppercase tracking-widest mb-2 font-semibold">
-                  Confidential Internal Document
-                </div>
-                <h1 className="text-3xl md:text-4xl font-bold text-foreground leading-tight">
-                  {viewingDoc?.title}
-                </h1>
-              </div>
-
-              {/* Document Content */}
-              <div className="prose prose-slate dark:prose-invert max-w-none font-serif leading-relaxed whitespace-pre-wrap text-lg">
-                {viewingDoc?.content}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end pt-4 border-t gap-2">
-            <Button variant="outline" onClick={() => window.print()}>Print</Button>
-            <Button onClick={() => setViewingDoc(null)}>Close Document</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Feature 2: Document Preview Dialog (REAL SMART READER) */}
+      {viewingDoc && (
+        <SmartReader
+          doc={viewingDoc as any} // Cast because viewingDoc might be partial, but we will ensure it has id/title
+          isOpen={!!viewingDoc}
+          onClose={() => setViewingDoc(null)}
+          initialPage={viewingDoc ? (viewingDoc as any).page : 1}
+        />
+      )}
 
     </main>
   );

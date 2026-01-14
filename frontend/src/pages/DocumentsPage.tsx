@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { SmartReader } from '@/components/SmartReader';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
@@ -27,41 +30,25 @@ import {
   Pause,
   X,
   Type,
-  Minimize2,
   Maximize2,
   Send,
-  Sparkles
+  Sparkles,
+  Minus,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Palette,
+  Ruler,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { endpoints, Document } from '@/lib/api';
+import { endpoints, Document as APIDocument } from '@/lib/api';
 import { toast } from 'sonner';
+// React-PDF removed for accessibility reasons
+// We will use a custom accessible text renderer with virtual pagination.
 
-// --- Mock Data for Simulation ---
-const SAMPLE_DOC_CONTENT = `
-**1. INTRODUCTION**
-The Company is committed to fostering an inclusive workplace where employees of all abilities can thrive. This policy outlines our standards for physical and digital accessibility, ensuring compliance with the Americans with Disabilities Act (ADA) and WCAG 2.2 Level AA.
-
-**2. DIGITAL ACCESSIBILITY STANDARDS**
-All internal software, websites, and mobile applications must meet the Web Content Accessibility Guidelines (WCAG) 2.2 Level AA. This includes:
-- Providing text alternatives for non-text content.
-- Providing captions and other alternatives for multimedia.
-- Making all functionality available from a keyboard.
-- Giving users enough time to read and use content.
-- Using sufficient contrast ratios (at least 4.5:1 for normal text).
-
-**3. REASONABLE ACCOMMODATIONS**
-Employees requiring assistive technology (e.g., screen readers, voice recognition software, modified keyboards) should submit a request through the HR Portal. The IT department will fulfill approved equipment requests within 5 business days.
-
-**4. PHYSICAL WORKSPACE**
-Pathways must be at least 36 inches wide to accommodate wheelchairs. Desks should be height-adjustable. Quiet zones are available for employees with sensory processing sensitivities.
-`;
-
-const SIMPLIFIED_CONTENT = `
-• **Our Goal**: We want a workplace where everyone belongs and can work easily.
-• **Computers & Apps**: All our apps must be easy to use for everyone. They must work with screen readers, have captions for videos, and work with just a keyboard.
-• **Need Help?**: If you need special equipment like a screen reader or special keyboard, ask HR. IT will get it for you in 5 days.
-• **Office Space**: Aisles are wide enough for wheelchairs. Desks can go up and down. We have quiet areas if it's too noisy for you.
-`;
+// --- Mock Data Removed (Using Real API) ---
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -69,21 +56,56 @@ interface ChatMessage {
 }
 
 export default function DocumentsPage() {
+  console.log("DocumentsPage Loaded - Accessible Version Checks");
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
   // --- Accessibility / Smart View State ---
-  const [readingDoc, setReadingDoc] = useState<Document | null>(null);
+  const [readingDoc, setReadingDoc] = useState<APIDocument | null>(null);
   const [textSize, setTextSize] = useState(16);
   const [isDyslexicFont, setIsDyslexicFont] = useState(false);
   const [isHighContrast, setIsHighContrast] = useState(false);
+  const [isReadingMask, setIsReadingMask] = useState(false);
+  const [overlayColor, setOverlayColor] = useState<string>('none'); // none, blue, yellow, rose, green
+  const [mouseY, setMouseY] = useState(0);
   const [isSimplified, setIsSimplified] = useState(false);
+
+  // --- PDF Viewer State ---
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const [pageNumber, setPageNumber] = useState<number>(1);
+  const [scale, setScale] = useState(1.0);
+
+  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
+    setNumPages(numPages);
+    setPageNumber(1);
+  }
+
+  // --- Visual Aids Effects ---
+  useEffect(() => {
+    if (!isReadingMask) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      // Offset by scroll if needed, but for fixed overlay clientY is good
+      setMouseY(e.clientY);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [isReadingMask]);
+
 
 
   // --- TTS State ---
   const { speak, cancel: cancelSpeech, isSpeaking: isTtsSpeaking } = useTextToSpeech();
+
+  // --- Speech Recognition ---
+  const { isListening, transcript, startListening, stopListening, isSupported: isSpeechSupported } = useSpeechRecognition();
+
+  useEffect(() => {
+    if (transcript) {
+      setChatInput(transcript);
+    }
+  }, [transcript]);
 
   // --- Chat State ---
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -112,8 +134,35 @@ export default function DocumentsPage() {
     }
   });
 
+  const [searchResults, setSearchResults] = useState<import('@/lib/api').SearchResult[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Debounced Semantic Search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const results = await endpoints.search(searchQuery);
+        setSearchResults(results);
+      } catch (err) {
+        console.error("Search failed", err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 600); // 600ms debounce
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // If search is active, we don't use filteredDocuments for the main list (unless search fails/empty)
+  // But for now let's keep filteredDocuments as a fallback or for initial view.
   const filteredDocuments = documents.filter(doc =>
-    doc.name.toLowerCase().includes(searchQuery.toLowerCase())
+    doc.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // --- Handlers ---
@@ -125,6 +174,25 @@ export default function DocumentsPage() {
     const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
   };
+  // --- Parameter Handling (Open from SearchPage) ---
+  const [searchParams] = useSearchParams(); // Needs import if not there, wait, check imports.
+  // DocumentsPage.tsx imports: line 1-50? No. 
+  // Need to add useSearchParams import.
+
+  useEffect(() => {
+    const openDocId = searchParams.get('openDocId');
+    const paramPage = searchParams.get('page');
+
+    if (openDocId && !readingDoc) {
+      // Find valid doc in query cache usually, but safer to fetch
+      endpoints.getDocument(openDocId).then(doc => {
+        // Auto open
+        openSmartReader(doc, Number(paramPage) || 1);
+        // Clean URL? Optional.
+      }).catch(err => console.error("Auto open failed", err));
+    }
+  }, [searchParams]);
+
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     handleFiles(files);
@@ -143,42 +211,132 @@ export default function DocumentsPage() {
 
   // --- Smart Reader Logic ---
 
-  const openSmartReader = (doc: Document) => {
-    setReadingDoc(doc);
+  // --- Virtual Pagination State ---
+  const [virtualPages, setVirtualPages] = useState<string[]>([]);
+
+  // Heuristic for splitting text into "pages" roughly
+  const paginateContent = (text: string) => {
+    if (!text) return [];
+    const charsPerPage = 3000; // Adjustable density
+    const pages: string[] = [];
+    let remaining = text;
+
+    while (remaining.length > 0) {
+      if (remaining.length <= charsPerPage) {
+        pages.push(remaining);
+        break;
+      }
+
+      // Find a safe break point (double newline -> newline -> period -> space)
+      let splitIndex = remaining.lastIndexOf('\n\n', charsPerPage);
+      if (splitIndex === -1) splitIndex = remaining.lastIndexOf('\n', charsPerPage);
+      if (splitIndex === -1) splitIndex = remaining.lastIndexOf('.', charsPerPage);
+      if (splitIndex === -1) splitIndex = charsPerPage;
+
+      pages.push(remaining.slice(0, splitIndex + 1));
+      remaining = remaining.slice(splitIndex + 1);
+    }
+    return pages;
+  };
+
+  const openSmartReader = async (doc: APIDocument, initialPage: number = 1) => {
+    try {
+      const fullDoc = await endpoints.getDocument(doc.id);
+      const docToUse = fullDoc || doc;
+      setReadingDoc(docToUse);
+
+      // Initial Pagination
+      const pages = paginateContent(docToUse.content_text || "No content.");
+      setVirtualPages(pages);
+      setNumPages(pages.length);
+
+    } catch (err) {
+      console.error("Failed to fetch document content:", err);
+      toast.error("Could not load document content");
+      setReadingDoc(doc);
+    }
     setIsSimplified(false);
     setIsChatOpen(false);
-    cancelSpeech(); // Stop any previous reading
+    setPageNumber(initialPage);
+    cancelSpeech();
+    setChatMessages([]);
+    setChatInput('');
   };
+
+  // --- Simplified Content State (Cached by Doc ID) ---
+  const [simplifiedCache, setSimplifiedCache] = useState<Record<string, string>>({});
+  const [isSimplifying, setIsSimplifying] = useState(false);
+
+  useEffect(() => {
+    const fetchSimplified = async () => {
+      if (!readingDoc) return;
+
+      // Check if we already have it in cache
+      if (simplifiedCache[readingDoc.id]) {
+        return;
+      }
+
+      if (isSimplified && readingDoc.content_text) {
+        setIsSimplifying(true);
+        try {
+          // Send first 2000 chars for simplification (MVP limit)
+          const textToSimplify = readingDoc.content_text.slice(0, 2000);
+          const result = await endpoints.simplify(textToSimplify);
+
+          setSimplifiedCache(prev => ({
+            ...prev,
+            [readingDoc.id]: result.simplified_text
+          }));
+        } catch (err) {
+          console.error("Simplification error:", err);
+          toast.error("Failed to simplify text");
+          setIsSimplified(false);
+        } finally {
+          setIsSimplifying(false);
+        }
+      }
+    };
+    fetchSimplified();
+  }, [isSimplified, readingDoc, simplifiedCache]);
 
   const togglePlay = () => {
     if (isTtsSpeaking) {
       cancelSpeech();
     } else {
-      const textToRead = isSimplified ? SIMPLIFIED_CONTENT : SAMPLE_DOC_CONTENT;
-      const cleanText = textToRead.replace(/[*•]/g, '').trim();
+      // proper fallback to content_text
+      const currentSimplified = readingDoc ? simplifiedCache[readingDoc.id] : '';
+      const textToRead = isSimplified ? (currentSimplified || "Simplifying...") : (readingDoc?.content_text || "No content available to read.");
+      const cleanText = textToRead.replace(/[*•#]/g, '').trim();
       speak(cleanText);
     }
   };
 
 
-  const handleChatSubmit = (e: React.FormEvent) => {
+  const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || !readingDoc) return;
 
-    const newMsg: ChatMessage = { role: 'user', text: chatInput };
-    setChatMessages(prev => [...prev, newMsg]);
-    setChatInput('');
+    const userMsg: ChatMessage = { role: 'user', text: chatInput };
+    setChatMessages(prev => [...prev, userMsg]);
     setIsChatLoading(true);
+    setChatInput(''); // Clear input immediately
+    stopListening(); // Stop listening if active
 
-    // Mock AI Response
-    setTimeout(() => {
-      const response: ChatMessage = {
+    try {
+      const result = await endpoints.chatDocument(readingDoc.id, userMsg.text);
+
+      const aiMsg: ChatMessage = {
         role: 'assistant',
-        text: "Based on the policy: Requests for assistive technology (like screen readers) are fulfilled by the IT department within 5 business days after approval."
+        text: result.answer
       };
-      setChatMessages(prev => [...prev, response]);
+      setChatMessages(prev => [...prev, aiMsg]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      const errorMsg: ChatMessage = { role: 'assistant', text: "I'm having trouble connecting to the document brain right now. Please try again." };
+      setChatMessages(prev => [...prev, errorMsg]);
+    } finally {
       setIsChatLoading(false);
-    }, 1500);
+    }
   };
 
   // Styles dynamically applied based on settings
@@ -194,7 +352,7 @@ export default function DocumentsPage() {
   );
 
 
-  const getStatusIcon = (status: Document['status']) => {
+  const getStatusIcon = (status: APIDocument['status']) => {
     switch (status) {
       case 'processing': return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
       case 'ready': return <CheckCircle className="h-4 w-4 text-green-500" />;
@@ -270,234 +428,118 @@ export default function DocumentsPage() {
 
         {/* Documents List */}
         <div className="space-y-3">
-          {filteredDocuments.map((doc) => (
-            <Card
-              key={doc.id}
-              className={cn(
-                'p-4 transition-all hover:shadow-md border-l-4',
-                doc.status === 'ready' ? 'border-l-green-500' : 'border-l-transparent'
+          {searchQuery.trim() ? (
+            // --- SEARCH RESULTS MODE ---
+            <div className="space-y-4">
+              {isSearching ? (
+                <div className="text-center py-10 text-muted-foreground animate-pulse">
+                  Searching content...
+                </div>
+              ) : searchResults?.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  No relevant documents found.
+                </div>
+              ) : (
+                searchResults?.map((result) => (
+                  <Card key={result.id} className="p-4 transition-all hover:shadow-md border-l-4 border-l-blue-500">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex justify-between items-start">
+                        <h3 className="font-medium text-foreground text-lg">{result.title}</h3>
+                        <span className={cn(
+                          "text-xs font-bold px-2 py-1 rounded-full",
+                          result.relevance > 0.8 ? "bg-green-100 text-green-700" :
+                            result.relevance > 0.5 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
+                        )}>
+                          {Math.round(result.relevance * 100)}% Match
+                        </span>
+                      </div>
+
+                      <p className="text-sm text-muted-foreground line-clamp-2 italic">
+                        "...{result.snippet}..."
+                      </p>
+
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-muted-foreground">Source: {result.source} (Page {result.page})</span>
+                        <Button
+                          onClick={() => openSmartReader({
+                            id: result.document_id, // Use correct Document ID
+                            title: result.title,
+                            file_type: 'pdf', // Assumption
+                            status: 'ready',
+                            created_at: new Date().toISOString(),
+                            content_text: '' // fetching in openSmartReader
+                          } as APIDocument, result.page || 1)}
+                          variant="default"
+                          size="sm"
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Open Smart View
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))
               )}
-            >
-              <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
-                <div className="p-3 rounded-xl bg-muted shrink-0">
-                  <FileText className="h-6 w-6 text-muted-foreground" />
-                </div>
-
-                <div className="flex-1 min-w-0 space-y-1">
-                  <h3 className="font-medium text-foreground truncate text-lg">
-                    {doc.name}
-                  </h3>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-muted/50 text-xs font-medium">
-                      {getStatusIcon(doc.status)}
-                      {doc.status.toUpperCase()}
-                    </span>
-                    {doc.pages && (
-                      <span>{doc.pages} pages</span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {new Date(doc.uploaded_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-
-                {doc.status === 'ready' && (
-                  <div className="flex items-center gap-2 w-full md:w-auto mt-2 md:mt-0">
-                    <Button onClick={() => openSmartReader(doc)} variant="default" size="sm" className="flex-1 md:flex-none">
-                      <Eye className="h-4 w-4 mr-2" />
-                      Smart View
-                    </Button>
-                    <Button onClick={() => openSmartReader(doc)} variant="outline" size="sm" className="flex-1 md:flex-none" title="Listen">
-                      <Volume2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
-
-        {/* --- SMART READER DIALOG --- */}
-        <Dialog open={!!readingDoc} onOpenChange={(open) => !open && setReadingDoc(null)}>
-          <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
-
-            {/* Header Toolbar */}
-            <div className="h-16 border-b flex items-center justify-between px-6 bg-muted/20 shrink-0">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <FileText className="h-5 w-5 text-primary shrink-0" />
-                <h2 className="font-semibold truncate">{readingDoc?.name}</h2>
-              </div>
-
-              <div className="flex items-center gap-2 md:gap-4">
-                {/* Play Controls */}
-                <Button
-                  variant={isTtsSpeaking ? "destructive" : "default"}
-                  size="sm"
-                  className="rounded-full w-32"
-                  onClick={togglePlay}
-                >
-                  {isTtsSpeaking ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
-                  {isTtsSpeaking ? "Pause" : "Listen"}
-                </Button>
-
-                {/* Divider */}
-                <div className="h-6 w-px bg-border" />
-
-                {/* Simplify Toggle */}
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="simplify-mode" className="text-sm font-medium cursor-pointer flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-yellow-500" /> Simplify
-                  </Label>
-                  <Switch
-                    id="simplify-mode"
-                    checked={isSimplified}
-                    onCheckedChange={setIsSimplified}
-                  />
-                </div>
-
-                {/* Divider */}
-                <div className="h-6 w-px bg-border hidden md:block" />
-
-                {/* Chat Toggle */}
-                <Button
-                  variant={isChatOpen ? "secondary" : "ghost"}
-                  size="icon"
-                  onClick={() => setIsChatOpen(!isChatOpen)}
-                  title="Ask AI"
-                >
-                  <MessageSquare className="h-5 w-5" />
-                </Button>
-              </div>
             </div>
-
-            {/* Main Content Area */}
-            <div className="flex flex-1 min-h-0 relative">
-
-              {/* Document Reader */}
-              <div className={cn("flex-1 flex flex-col min-h-0 transition-all duration-300", isChatOpen ? "mr-80 md:mr-96" : "")}>
-
-                {/* Formatting Toolbar */}
-                <div className="h-12 border-b flex items-center justify-center gap-6 px-4 bg-background/95 backdrop-blur z-10 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <Type className="h-4 w-4 text-muted-foreground" />
-                    <Slider
-                      value={[textSize]}
-                      onValueChange={(v) => setTextSize(v[0])}
-                      min={12}
-                      max={32}
-                      step={2}
-                      className="w-24 md:w-32"
-                    />
-                    <span className="text-xs text-muted-foreground w-6 text-center">{textSize}px</span>
+          ) : (
+            // --- STANDARD LIST MODE ---
+            filteredDocuments.map((doc) => (
+              <Card
+                key={doc.id}
+                className={cn(
+                  'p-4 transition-all hover:shadow-md border-l-4',
+                  doc.status === 'ready' ? 'border-l-green-500' : 'border-l-transparent'
+                )}
+              >
+                <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+                  <div className="p-3 rounded-xl bg-muted shrink-0">
+                    <FileText className="h-6 w-6 text-muted-foreground" />
                   </div>
 
-                  <div className="flex items-center gap-2 border-l pl-4">
-                    <Label className="text-xs">Dyslexic Font</Label>
-                    <Switch checked={isDyslexicFont} onCheckedChange={setIsDyslexicFont} />
-                  </div>
-
-                  <div className="flex items-center gap-2 border-l pl-4">
-                    <Label className="text-xs">High Contrast</Label>
-                    <Switch checked={isHighContrast} onCheckedChange={setIsHighContrast} />
-                  </div>
-                </div>
-
-                {/* Scrollable Text */}
-                <ScrollArea className="flex-1">
-                  <div className={containerClass} style={readerStyles}>
-                    <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
-                      {isSimplified ? (
-                        <div className="prose prose-lg dark:prose-invert max-w-none">
-                          <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-lg border border-yellow-200 dark:border-yellow-900 mb-6">
-                            <h3 className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400 font-semibold m-0">
-                              <Sparkles className="h-5 w-5" /> AI Summary
-                            </h3>
-                            <p className="text-sm text-muted-foreground m-0 mt-1">This document has been simplified for easier reading.</p>
-                          </div>
-                          <div dangerouslySetInnerHTML={{ __html: SIMPLIFIED_CONTENT.replace(/\n/g, '<br/>') }} />
-                        </div>
-                      ) : (
-                        <div className="prose prose-slate dark:prose-invert max-w-none leading-relaxed">
-                          <div dangerouslySetInnerHTML={{ __html: SAMPLE_DOC_CONTENT.replace(/\*\*(.*?)\*\*/g, '<h3>$1</h3>').replace(/\n/g, '<br/>') }} />
-                        </div>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <h3 className="font-medium text-foreground truncate text-lg">
+                      {doc.title}
+                    </h3>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-muted/50 text-xs font-medium">
+                        {getStatusIcon(doc.status)}
+                        {doc.status.toUpperCase()}
+                      </span>
+                      {doc.pages && (
+                        <span>{doc.pages} pages</span>
                       )}
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {new Date(doc.created_at).toLocaleDateString()}
+                      </span>
                     </div>
                   </div>
-                </ScrollArea>
-              </div>
 
-              {/* Chat Sidebar (Overlay/Slide-in) */}
-              <div className={cn(
-                "absolute top-0 right-0 bottom-0 w-80 md:w-96 border-l bg-muted/30 flex flex-col transition-transform duration-300 shadow-2xl z-20",
-                isChatOpen ? "translate-x-0" : "translate-x-full"
-              )}>
-                <div className="p-4 border-b bg-background flex justify-between items-center">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                    Chat with Document
-                  </h3>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsChatOpen(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                <ScrollArea className="flex-1 p-4">
-                  {chatMessages.length === 0 ? (
-                    <div className="text-center text-muted-foreground py-10 px-4">
-                      <Sparkles className="h-10 w-10 mx-auto text-primary/20 mb-3" />
-                      <p className="text-sm">Ask any question about this document. Try asking about <strong>deadlines</strong> or <strong>accommodations</strong>.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {chatMessages.map((msg, i) => (
-                        <div key={i} className={cn("flex gap-3 text-sm", msg.role === 'user' ? "flex-row-reverse" : "")}>
-                          <Avatar className="h-8 w-8 shrink-0">
-                            <AvatarFallback className={msg.role === 'user' ? "bg-primary text-primary-foreground" : "bg-green-600 text-white"}>
-                              {msg.role === 'user' ? "ME" : "AI"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className={cn(
-                            "p-3 rounded-lg max-w-[85%]",
-                            msg.role === 'user' ? "bg-primary text-primary-foreground" : "bg-card border shadow-sm"
-                          )}>
-                            {msg.text}
-                          </div>
-                        </div>
-                      ))}
-                      {isChatLoading && (
-                        <div className="flex gap-3 text-sm">
-                          <Avatar className="h-8 w-8 shrink-0"><AvatarFallback className="bg-green-600 text-white">AI</AvatarFallback></Avatar>
-                          <div className="bg-card border shadow-sm p-3 rounded-lg">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          </div>
-                        </div>
-                      )}
+                  {doc.status === 'ready' && (
+                    <div className="flex items-center gap-2 w-full md:w-auto mt-2 md:mt-0">
+                      <Button onClick={() => openSmartReader(doc)} variant="default" size="sm" className="flex-1 md:flex-none">
+                        <Eye className="h-4 w-4 mr-2" />
+                        Smart View
+                      </Button>
                     </div>
                   )}
-                </ScrollArea>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
 
-                <form onSubmit={handleChatSubmit} className="p-3 bg-background border-t">
-                  <div className="relative">
-                    <Input
-                      placeholder="Ask a question..."
-                      className="pr-10"
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                    />
-                    <Button size="icon" type="submit" variant="ghost" className="absolute right-0 top-0 h-10 w-10 text-primary hover:bg-transparent" disabled={!chatInput.trim() || isChatLoading}>
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </form>
-              </div>
-
-            </div>
-
-
-
-          </DialogContent>
-        </Dialog>
+        {/* --- SMART READER COMPONENT --- */}
+        {readingDoc && (
+          <SmartReader
+            doc={readingDoc}
+            isOpen={!!readingDoc}
+            onClose={() => {
+              setReadingDoc(null);
+            }}
+            initialPage={pageNumber}
+          />
+        )}
       </div>
     </main>
   );

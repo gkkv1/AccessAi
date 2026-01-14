@@ -1,0 +1,61 @@
+Global Error: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 3940. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_38Cy6TD5FNPrIAOALaczFf3r3UZ'}
+Traceback (most recent call last):
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\middleware\cors.py", line 91, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\middleware\cors.py", line 146, in simple_response
+    await self.app(scope, receive, send)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\routing.py", line 762, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\routing.py", line 782, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 64, in wrapped_app
+    raise exc
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\starlette\routing.py", line 72, in app
+    response = await func(request)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\fastapi\routing.py", line 299, in app
+    raise e
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\fastapi\routing.py", line 294, in app
+    raw_response = await run_endpoint_function(
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\fastapi\routing.py", line 191, in run_endpoint_function
+    return await dependant.call(**values)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\app\api\documents.py", line 67, in simplify_text
+    return {"simplified_text": await rag_service.simplify(text)}
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\app\services\rag_service.py", line 123, in simplify
+    response = self.llm.invoke(messages)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\langchain_core\language_models\chat_models.py", line 402, in invoke
+    self.generate_prompt(
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\langchain_core\language_models\chat_models.py", line 1121, in generate_prompt
+    return self.generate(prompt_messages, stop=stop, callbacks=callbacks, **kwargs)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\langchain_core\language_models\chat_models.py", line 931, in generate
+    self._generate_with_cache(
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\langchain_core\language_models\chat_models.py", line 1233, in _generate_with_cache
+    result = self._generate(
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\langchain_openai\chat_models\base.py", line 1386, in _generate
+    raise e
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\langchain_openai\chat_models\base.py", line 1381, in _generate
+    raw_response = self.client.with_raw_response.create(**payload)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\openai\_legacy_response.py", line 364, in wrapped
+    return cast(LegacyAPIResponse[R], func(*args, **kwargs))
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\openai\_utils\_utils.py", line 286, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\openai\resources\chat\completions\completions.py", line 1192, in create
+    return self._post(
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\openai\_base_client.py", line 1259, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+  File "C:\Users\hp\OneDrive\Desktop\Fullstack\backend\venv\lib\site-packages\openai\_base_client.py", line 1047, in request
+    raise self._make_status_error_from_response(err.response) from None
+openai.APIStatusError: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 3940. To increase, visit https://openrouter.ai/settings/credits and upgrade to a paid account', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_38Cy6TD5FNPrIAOALaczFf3r3UZ'}
