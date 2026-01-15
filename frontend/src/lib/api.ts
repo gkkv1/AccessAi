@@ -77,6 +77,18 @@ export const endpoints = {
         return response.data;
     },
 
+    // --- Forms ---
+    autofillForm: async (formId: string, fields: any[]) => {
+        const response = await api.post('/forms/autofill', { form_id: formId, fields });
+        return response.data;
+    },
+
+    submitForm: async (formId: string, data: any) => {
+        const response = await api.post('/forms/submit', { form_id: formId, data });
+        return response.data;
+    },
+
+    // --- Transcriptions ---
     transcribe: async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
@@ -86,15 +98,6 @@ export const endpoints = {
         return response.data;
     },
 
-    // Forms
-    autofillForm: async () => {
-        // For demo, we might not send context, or send a dummy one
-        const response = await api.post<Record<string, string>>('/forms/autofill', { context: "demo" });
-        return response.data;
-    },
 
-    submitForm: async (data: any) => {
-        const response = await api.post('/forms/submit', data);
-        return response.data;
-    }
+    // Forms - Handled by new methods above
 };

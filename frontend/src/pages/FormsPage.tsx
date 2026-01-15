@@ -26,6 +26,8 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { endpoints } from '@/lib/api';
 
 // --- Types ---
 interface FormField {
@@ -59,7 +61,7 @@ const FORM_DEFINITIONS: Record<string, FormDefinition> = {
       { id: 'email', label: 'Email Address', type: 'email', value: '', required: true, readOnly: true },
       { id: 'department', label: 'Department', type: 'select', value: '', options: ['Technology', 'Product', 'Design', 'Marketing', 'Sales'], required: true },
       { id: 'project_name', label: 'Project Name', type: 'text', value: '', placeholder: 'e.g., Q3 Mobile App Redesign', required: true, voiceEnabled: true },
-      { id: 'role', label: 'Role / Designation', type: 'text', value: '', placeholder: 'e.g., Senior Frontend Engineer', required: true },
+      { id: 'role', label: 'Role / Designation', type: 'text', value: '', placeholder: 'e.g., Senior Frontend Engineer', required: true, voiceEnabled: true },
       { id: 'start_date', label: 'Start Date', type: 'date', value: '', required: true },
       { id: 'allocation_percentage', label: 'Allocation (%)', type: 'select', value: '', options: ['25%', '50%', '75%', '100%'], required: true },
       { id: 'justification', label: 'Business Justification', type: 'textarea', value: '', placeholder: 'Explain why this resource is needed...', required: true, voiceEnabled: true },
@@ -76,7 +78,7 @@ const FORM_DEFINITIONS: Record<string, FormDefinition> = {
       { id: 'start_date', label: 'From Date', type: 'date', value: '', required: true },
       { id: 'end_date', label: 'To Date', type: 'date', value: '', required: true },
       { id: 'reason', label: 'Reason for Leave', type: 'textarea', value: '', placeholder: 'Optional reason...', voiceEnabled: true },
-      { id: 'emergency_contact', label: 'Emergency Contact', type: 'text', value: '', placeholder: 'Name and Phone Number', required: true },
+      { id: 'emergency_contact', label: 'Emergency Contact', type: 'text', value: '', placeholder: 'Name and Phone Number', required: true, voiceEnabled: true },
     ]
   },
   expense_reimbursement: {
@@ -88,7 +90,7 @@ const FORM_DEFINITIONS: Record<string, FormDefinition> = {
       { id: 'report_title', label: 'Report Title', type: 'text', value: '', placeholder: 'e.g., Client Visit - NYC', required: true, voiceEnabled: true },
       { id: 'expense_date', label: 'Expense Date', type: 'date', value: '', required: true },
       { id: 'category', label: 'Category', type: 'select', value: '', options: ['Travel', 'Meals', 'Office Supplies', 'Training', 'Other'], required: true },
-      { id: 'amount', label: 'Amount ($)', type: 'number', value: '', placeholder: '0.00', required: true },
+      { id: 'amount', label: 'Amount ($)', type: 'number', value: '', placeholder: '0.00', required: true, voiceEnabled: true },
       { id: 'description', label: 'Description', type: 'textarea', value: '', placeholder: 'Details of the expense...', required: true, voiceEnabled: true },
     ]
   }
@@ -123,61 +125,24 @@ export default function FormsPage() {
     );
   };
 
-  // --- Auto-Fill Logic ---
-  const handleAutoFill = () => {
-    // Simulate API delay
-    const toastId = toast.loading("AI is analyzing your profile...");
+  // --- Real Voice Input ---
+  const { isListening, transcript, startListening, stopListening, resetTranscript } = useSpeechRecognition();
 
-    setTimeout(() => {
-      setFields(prev => prev.map(f => {
-        // AI Logic: Map known fields to user data or mock context
-        let newValue = f.value;
+  // Sync voice transcript to state
+  useEffect(() => {
+    if (transcript && isVoiceListening) {
+      setRecognizedText(transcript);
+      setVoiceStep('recognized');
+    }
+  }, [transcript, isVoiceListening]);
 
-        if (f.id === 'full_name') newValue = user?.full_name || 'Demo User';
-        if (f.id === 'email') newValue = user?.email || 'demo@access.ai';
-        if (f.id === 'employee_id') newValue = 'EMP-2024-8842';
-        if (f.id === 'department') newValue = 'Technology'; // Mock
-        if (f.id === 'manager') newValue = 'Sarah Connor';   // Mock
-
-        // Context-aware mocks
-        if (f.id === 'project_name' && !f.value) newValue = 'Accessibility Audit 2024';
-        if (f.id === 'role' && !f.value) newValue = 'Lead Developer';
-
-        return { ...f, value: newValue };
-      }));
-
-      toast.dismiss(toastId);
-      toast.success("Form pre-filled with your information", {
-        description: "Data sourced from Employee Profile & Current Assignment"
-      });
-    }, 1200);
-  };
-
-  // --- Voice Input Simulation ---
   const startVoiceInput = (fieldId: string) => {
     setActiveVoiceFieldId(fieldId);
     setIsVoiceListening(true);
     setVoiceStep('listening');
     setRecognizedText('');
-
-    // Simulate recognition delay
-    setTimeout(() => {
-      setVoiceStep('recognized');
-      // Mock result based on field type
-      const mockResult = getMockVoiceResult(fieldId);
-      setRecognizedText(mockResult);
-    }, 2000);
-  };
-
-  const getMockVoiceResult = (fieldId: string) => {
-    switch (fieldId) {
-      case 'project_name': return "Q4 Infrastructure Upgrade";
-      case 'justification': return "We need additional resources to meet the compliance deadline.";
-      case 'reason': return "Attending a medical appointment.";
-      case 'description': return "Lunch with potential client to discuss contract renewal.";
-      case 'report_title': return "Client Dinner - San Francisco";
-      default: return "This is a simulated voice input.";
-    }
+    resetTranscript(); // Clear previous session's text
+    startListening();
   };
 
   const confirmVoiceInput = () => {
@@ -185,27 +150,63 @@ export default function FormsPage() {
       updateField(activeVoiceFieldId, recognizedText);
       setIsVoiceListening(false);
       setActiveVoiceFieldId(null);
+      stopListening();
       toast.success("Field updated via voice");
     }
   };
 
-  // --- Submission Simulation ---
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  // --- Real Auto-Fill Logic ---
+  const handleAutoFill = async () => {
+    const toastId = toast.loading("AI is analyzing your profile...");
 
-    // Step 1: Validation
+    try {
+      const result = await endpoints.autofillForm(selectedFormId, fields);
+
+      setFields(prev => prev.map(f => {
+        if (result[f.id]) {
+          return { ...f, value: String(result[f.id]) };
+        }
+        return f;
+      }));
+
+      toast.dismiss(toastId);
+      toast.success("Form pre-filled", {
+        description: "Data sourced from your profile & context."
+      });
+    } catch (error) {
+      console.error(error);
+      toast.dismiss(toastId);
+      toast.error("Failed to auto-fill form");
+    }
+  };
+
+  // --- Real Submission Logic ---
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setSubmissionStatus('validating');
-    setTimeout(() => {
-      // Step 2: Submitting
+
+    // Quick local validation (simulated 500ms for UI feel)
+    await new Promise(r => setTimeout(r, 500));
+
+    try {
       setSubmissionStatus('submitting');
-      setTimeout(() => {
-        // Step 3: Success
-        setSubmissionStatus('success');
-        const ref = 'REF-' + Math.floor(10000000 + Math.random() * 90000000);
-        setReferenceId(ref);
-        toast.success("Form submitted successfully!");
-      }, 2000);
-    }, 1500);
+
+      // Prepare data map
+      const formData = fields.reduce((acc, field) => ({
+        ...acc,
+        [field.id]: field.value
+      }), {});
+
+      const response = await endpoints.submitForm(selectedFormId, formData);
+
+      setReferenceId(response.reference_id || "SUB-0000");
+      setSubmissionStatus('success');
+      toast.success("Form submitted successfully!");
+    } catch (error) {
+      console.error(error);
+      setSubmissionStatus('idle');
+      toast.error("Failed to submit form");
+    }
   };
 
   const currentForm = FORM_DEFINITIONS[selectedFormId];

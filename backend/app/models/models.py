@@ -1,5 +1,6 @@
 import uuid
 from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Float, Integer
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -16,6 +17,9 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     disability_type = Column(String, nullable=True)
     accessibility_preferences = Column(JSONB, default={})
+    
+    # Relationships
+    forms = relationship("FormSubmission", back_populates="user")
     
     # Auth & Security
     biometric_registered = Column(Boolean, default=False)
@@ -82,7 +86,12 @@ class FormSubmission(Base):
     # structured extraction result
     extracted_data = Column(JSONB, default={}) 
     
+    status = Column(String, default="pending")
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationship
+    user = relationship("User", back_populates="forms")
 
 class Transcription(Base):
     """
