@@ -4,12 +4,25 @@ from sqlalchemy.orm import Session
 from app.models.models import FormSubmission, User
 from app.services.rag_service import rag_service  # Reuse RAG for embeddings/LLM access if needed, or direct OpenAI
 import json
-from openai import AsyncOpenAI
+from openai import OpenAI, AsyncOpenAI
 import os
 
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
 class FormService:
+    def __init__(self):
+        # Initialize OpenAI clients
+        # Ensure OPENAI_API_KEY is set in env
+        api_key = os.getenv("OPENAI_API_KEY")
+        base_url = os.getenv("OPENAI_BASE_URL")
+        
+        if not api_key:
+            print("WARNING: OPENAI_API_KEY not found in environment")
+        elif api_key.startswith("sk-or-"):
+            print("INFO: OpenRouter key detected. Setting base_url to https://openrouter.ai/api/v1")
+            if not base_url:
+                base_url = "https://openrouter.ai/api/v1"
+
+        self.openai_client = OpenAI(api_key=api_key, base_url=base_url) 
+        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     async def autofill_form(self, form_id: str, fields: List[Dict], user_id: str, db: Session) -> Dict[str, str]:
         """
         Uses AI to intelligently fill form fields based on user profile and past context.
@@ -49,13 +62,15 @@ class FormService:
         ai_data = {}
 
         try:
-            response = await client.chat.completions.create(
-                model="gpt-4",
+            model_name = os.getenv("LLM_MODEL", "openai/gpt-3.5-turbo") # Default to cheaper model
+            response = self.openai_client.chat.completions.create(
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": "Please autofill this form for me."}
                 ],
-                response_format={ "type": "json_object" }
+                response_format={ "type": "json_object" },
+                max_tokens=1000 # Limit output
             )
             
             content = response.choices[0].message.content
@@ -100,5 +115,77 @@ class FormService:
             "message": "Form submitted successfully", 
             "reference_id": str(submission.id)
         }
+
+    async def interactive_chat(self, form_id: str, fields: List[Dict], user_message: str, history: List[Dict] = []) -> Dict:
+        """
+        Process a chat message to fill the form conversationally.
+        Returns updated field values and the next question.
+        """
+        # 1. Construct Context
+        # Simplify fields for the LLM to save tokens
+        field_context = []
+        for f in fields:
+            field_context.append({
+                "id": f.get("id"),
+                "label": f.get("label"),
+                "current_value": f.get("value"),
+                "required": f.get("required"),
+                "type": f.get("type"),
+                "options": f.get("options")
+            })
+
+        system_prompt = f"""
+        You are a helpful, professional administrative assistant helping a user fill out a form.
+        
+        FORM STRUCTURE:
+        {json.dumps(field_context, indent=2)}
+
+        YOUR GOAL:
+        1. Analyze the USER'S MESSAGE.
+        2. EXTRACT any information that matches the form fields.
+           - Be robust: If user says "it's for marketing", map it to "Department: Marketing".
+           - Formatting: Convert dates to YYYY-MM-DD.
+        3. IDENTIFY the next empty 'required' field.
+        4. GENERATE the next question to ask the user.
+           - Be conversational but concise.
+           - If all required fields are filled, say: "I have gathered all the necessary information. You can now close this chat, review your details in the form, and click Submit."
+
+        OUTPUT FORMAT (JSON):
+        {{
+            "extracted_updates": {{ "field_id": "value" }},
+            "next_question": "The question string"
+        }}
+        """
+
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add limited history context (last 2 turns)
+        params = history[-4:] if history else []
+        for msg in params:
+             messages.append({"role": msg.get("role"), "content": msg.get("content")})
+
+        messages.append({"role": "user", "content": user_message})
+
+        try:
+            # Using stable sync client
+            model_name = os.getenv("LLM_MODEL", "openai/gpt-3.5-turbo")
+            response = self.openai_client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                response_format={ "type": "json_object" },
+                max_tokens=500  # Restrict output to save credits (User has ~500 left)
+            )
+            
+            content = response.choices[0].message.content
+            return json.loads(content)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            # Fallback - Return error for debug
+            return {
+                "extracted_updates": {},
+                "next_question": f"Error: {str(e)}" 
+            }
 
 form_service = FormService()

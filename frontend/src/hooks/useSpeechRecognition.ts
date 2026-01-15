@@ -15,17 +15,22 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     const [isSupported, setIsSupported] = useState(false);
     const recognitionRef = useRef<any>(null);
 
+    // Track listening state in ref to access inside callbacks without dependencies
+    const isListeningRef = useRef(false);
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
             if (SpeechRecognition) {
                 setIsSupported(true);
-                recognitionRef.current = new SpeechRecognition();
-                recognitionRef.current.continuous = true;
-                recognitionRef.current.interimResults = true;
-                recognitionRef.current.lang = 'en-US';
+                const recognition = new SpeechRecognition();
+                recognitionRef.current = recognition;
 
-                recognitionRef.current.onresult = (event: any) => {
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = 'en-US';
+
+                recognition.onresult = (event: any) => {
                     let finalTranscript = '';
                     for (let i = event.resultIndex; i < event.results.length; ++i) {
                         if (event.results[i].isFinal) {
@@ -37,40 +42,53 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
                     }
                 };
 
-                recognitionRef.current.onerror = (event: any) => {
+                recognition.onerror = (event: any) => {
                     console.error("Speech recognition error", event.error);
-                    setIsListening(false);
+                    // Ignore 'no-speech' errors which happen often
+                    if (event.error !== 'no-speech') {
+                        setIsListening(false);
+                        isListeningRef.current = false;
+                    }
                 };
 
-                recognitionRef.current.onend = () => {
-                    // If we want it to be truly continuous, we might restart here, 
-                    // but for chat input usually user toggles it off.
-                    if (isListening) {
-                        // Optional: restart? No, better manual control for input field.
-                        setIsListening(false);
-                    }
+                recognition.onend = () => {
+                    setIsListening(false);
+                    isListeningRef.current = false;
                 };
             }
         }
-    }, [isListening]);
+        // Cleanup
+        return () => {
+            if (recognitionRef.current) {
+                recognitionRef.current.abort();
+            }
+        };
+    }, []); // Run ONCE
 
     const startListening = useCallback(() => {
-        if (recognitionRef.current && !isListening) {
+        if (recognitionRef.current && !isListeningRef.current) {
             try {
                 recognitionRef.current.start();
                 setIsListening(true);
-            } catch (e) {
-                console.error(e);
+                isListeningRef.current = true;
+            } catch (e: any) {
+                console.error("Speech Recognition Error:", e);
+                // Handle 'already started' by syncing state
+                if (e?.message?.includes('already started') || e?.name === 'InvalidStateError') {
+                    setIsListening(true);
+                    isListeningRef.current = true;
+                }
             }
         }
-    }, [isListening]);
+    }, []);
 
     const stopListening = useCallback(() => {
-        if (recognitionRef.current && isListening) {
+        if (recognitionRef.current && isListeningRef.current) {
             recognitionRef.current.stop();
             setIsListening(false);
+            isListeningRef.current = false;
         }
-    }, [isListening]);
+    }, []);
 
     const resetTranscript = useCallback(() => {
         setTranscript('');

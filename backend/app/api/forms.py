@@ -19,7 +19,28 @@ class SubmitFormRequest(BaseModel):
     form_id: str
     data: Dict[str, Any]
 
+class ChatSessionRequest(BaseModel):
+    form_id: str
+    fields: List[Dict[str, Any]]
+    user_message: str
+    history: List[Dict[str, str]] = []
+
 # --- Endpoints ---
+
+@router.post("/chat-session")
+async def chat_session(
+    request: ChatSessionRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Handles conversational form filling logic.
+    """
+    return await form_service.interactive_chat(
+        form_id=request.form_id,
+        fields=request.fields,
+        user_message=request.user_message,
+        history=request.history
+    )
 
 @router.post("/autofill")
 async def autofill_form(

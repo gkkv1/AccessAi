@@ -88,6 +88,16 @@ export const endpoints = {
         return response.data;
     },
 
+    chatFormSession: async (formId: string, fields: any[], userMessage: string, history: any[]) => {
+        const response = await api.post('/forms/chat-session', {
+            form_id: formId,
+            fields,
+            user_message: userMessage,
+            history
+        });
+        return response.data;
+    },
+
     // --- Transcriptions ---
     transcribe: async (file: File) => {
         const formData = new FormData();

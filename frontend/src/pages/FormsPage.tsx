@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext'; // Import AuthContext
+import { useAuth } from '@/contexts/AuthContext';
+import { FormChatOverlay } from '@/components/FormChatOverlay';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -19,9 +20,10 @@ import {
   Check,
   AlertCircle,
   Loader2,
-  X, // Import X icon
+  X,
   ChevronRight,
-  FileText
+  FileText,
+  Bot // Import Bot icon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -100,6 +102,7 @@ export default function FormsPage() {
   const { user } = useAuth(); // Get logged-in user
   const [selectedFormId, setSelectedFormId] = useState<string>('project_allocation');
   const [fields, setFields] = useState<FormField[]>(FORM_DEFINITIONS['project_allocation'].fields);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Voice Simulation State
   const [isVoiceListening, setIsVoiceListening] = useState(false);
@@ -121,6 +124,14 @@ export default function FormsPage() {
     setFields(prev =>
       prev.map(f =>
         f.id === id ? { ...f, value, error: undefined } : f
+      )
+    );
+  };
+
+  const batchUpdateFields = (updates: Record<string, string>) => {
+    setFields(prev =>
+      prev.map(f =>
+        updates[f.id] !== undefined ? { ...f, value: updates[f.id] as string, error: undefined } : f
       )
     );
   };
@@ -286,14 +297,24 @@ export default function FormsPage() {
             <h2 className="text-xl font-semibold">{currentForm.title}</h2>
             <p className="text-sm text-muted-foreground">{currentForm.description}</p>
           </div>
-          <Button
-            variant="outline"
-            onClick={handleAutoFill}
-            className="shrink-0"
-          >
-            <Sparkles className="h-4 w-4 mr-2" />
-            AI Auto-Fill
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsChatOpen(true)}
+              className="shrink-0 gap-2 border-primary/50 text-primary hover:bg-primary/5"
+            >
+              <Bot className="h-4 w-4" />
+              Start Interview Mode
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleAutoFill}
+              className="shrink-0"
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              AI Auto-Fill
+            </Button>
+          </div>
         </div>
 
         {/* Progress indicator */}
@@ -481,6 +502,16 @@ export default function FormsPage() {
         </DialogContent>
       </Dialog>
 
+
+      {isChatOpen && (
+        <FormChatOverlay
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          formId={selectedFormId}
+          fields={fields}
+          onUpdateFields={batchUpdateFields}
+        />
+      )}
 
     </main>
   );
