@@ -5,7 +5,8 @@ import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { SmartReader } from '@/components/SmartReader';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { AccessLoader } from '@/components/AccessLoader';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -360,8 +361,20 @@ export default function DocumentsPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <AccessLoader size="xl" text="Loading your documents..." />
+      </div>
+    );
+  }
+
   return (
-    <main id="main-content" className="container py-8 md:py-12 transition-accessibility">
+    <main id="main-content" className="container py-8 md:py-12 relative min-h-screen">
+      {/* Upload Overlay */}
+      {uploadMutation.isPending && (
+        <AccessLoader overlay size="xl" text="Uploading and processing with AI..." />
+      )}
       <div className="max-w-5xl mx-auto">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>

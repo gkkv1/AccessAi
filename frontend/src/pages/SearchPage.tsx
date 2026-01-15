@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
+import { AccessLoader } from '@/components/AccessLoader';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { SearchBar } from '@/components/SearchBar';
@@ -52,13 +53,12 @@ export default function SearchPage() {
   const simplifyMutation = useMutation({
     mutationFn: endpoints.simplify,
     onSuccess: (data, variables) => {
-      // Find the result that was simplified to get its ID/Title if needed
-      // For now, we just show the simplified content
-      setSimplifiedItem({
-        id: "temp-id",
-        original: variables, // The snippet sent to be simplified
-        simplified: data.simplified_text
-      });
+      // Update the existing item with the result
+      setSimplifiedItem(prev => prev ? { ...prev, simplified: data.simplified_text } : null);
+    },
+    onError: () => {
+      setSimplifiedItem(null);
+      toast.error("Failed to simplify text");
     }
   });
 
@@ -172,10 +172,7 @@ export default function SearchPage() {
         {/* Loading state */}
         {isLoading && (
           <div className="flex items-center justify-center py-12">
-            <div className="text-center space-y-4">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-              <p className="text-muted-foreground">Searching documents...</p>
-            </div>
+            <AccessLoader size="lg" text="Analyzing documents..." />
           </div>
         )}
 
@@ -246,11 +243,14 @@ export default function SearchPage() {
                           variant="outline"
                           size="sm"
                           className="h-8"
-                          onClick={() => simplifyMutation.mutate(result.snippet)}
+                          onClick={() => {
+                            setSimplifiedItem({ id: result.id, original: result.snippet, simplified: '' }); // Set initial state (loading)
+                            simplifyMutation.mutate(result.snippet);
+                          }}
                           disabled={simplifyMutation.isPending}
                         >
                           <MessageSquare className="h-3 w-3 mr-2" />
-                          {simplifyMutation.isPending ? 'Simplifying...' : 'Simplify'}
+                          Simplify
                         </Button>
 
                         <Button
@@ -369,52 +369,61 @@ export default function SearchPage() {
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto p-6 bg-background">
-            {/* Original (Collapsible/Small) */}
-            <div className="mb-6 p-4 bg-muted/30 rounded-lg border text-sm text-foreground/60">
-              <h4 className="font-semibold uppercase text-xs tracking-wider mb-2 opacity-70">Original Snippet</h4>
-              <p className="italic line-clamp-3">{simplifiedItem?.original}</p>
-            </div>
+            {/* Loading State */}
+            {!simplifiedItem?.simplified ? (
+              <div className="flex flex-col items-center justify-center h-full min-h-[300px]">
+                <AccessLoader size="lg" text="Simplifying text with AI..." />
+              </div>
+            ) : (
+              <>
+                {/* Original (Collapsible/Small) */}
+                <div className="mb-6 p-4 bg-muted/30 rounded-lg border text-sm text-foreground/60">
+                  <h4 className="font-semibold uppercase text-xs tracking-wider mb-2 opacity-70">Original Snippet</h4>
+                  <p className="italic line-clamp-3">{simplifiedItem.original}</p>
+                </div>
 
-            {/* Simplified Content with Custom Formatter */}
-            <div className="prose prose-slate dark:prose-invert max-w-none leading-relaxed space-y-3">
-              {simplifiedItem && simplifiedItem.simplified.split('\n').map((line, i) => {
-                const cleanLine = line.trim();
-                if (!cleanLine) return <br key={i} />;
+                {/* Simplified Content with Custom Formatter */}
+                <div className="prose prose-slate dark:prose-invert max-w-none leading-relaxed space-y-3">
+                  {simplifiedItem.simplified.split('\n').map((line, i) => {
+                    const cleanLine = line.trim();
+                    if (!cleanLine) return <br key={i} />;
 
-                // Handle Bullet Points
-                if (cleanLine.startsWith('- ') || cleanLine.startsWith('• ')) {
-                  const content = cleanLine.substring(2);
-                  // Parse Bold in bullets
-                  const parts = content.split(/(\*\*.*?\*\*)/g).map((part, j) => {
-                    if (part.startsWith('**') && part.endsWith('**')) {
-                      return <strong key={j} className="text-foreground font-bold">{part.slice(2, -2)}</strong>;
+                    // Handle Bullet Points
+                    if (cleanLine.startsWith('- ') || cleanLine.startsWith('• ')) {
+                      const content = cleanLine.substring(2);
+                      // Parse Bold in bullets
+                      const parts = content.split(/(\*\*.*?\*\*)/g).map((part, j) => {
+                        if (part.startsWith('**') && part.endsWith('**')) {
+                          return <strong key={j} className="text-foreground font-bold">{part.slice(2, -2)}</strong>;
+                        }
+                        return part;
+                      });
+                      return (
+                        <div key={i} className="flex gap-2 items-start pl-2">
+                          <span className="text-primary mt-1.5 shrink-0">•</span>
+                          <span>{parts}</span>
+                        </div>
+                      );
                     }
-                    return part;
-                  });
-                  return (
-                    <div key={i} className="flex gap-2 items-start pl-2">
-                      <span className="text-primary mt-1.5 shrink-0">•</span>
-                      <span>{parts}</span>
-                    </div>
-                  );
-                }
 
-                // Handle Regular Lines (Headers/Paragraphs)
-                const parts = cleanLine.split(/(\*\*.*?\*\*)/g).map((part, j) => {
-                  if (part.startsWith('**') && part.endsWith('**')) {
-                    return <strong key={j} className="text-foreground font-bold text-lg block mt-4 mb-2 first:mt-0">{part.slice(2, -2)}</strong>;
-                  }
-                  return part;
-                });
+                    // Handle Regular Lines (Headers/Paragraphs)
+                    const parts = cleanLine.split(/(\*\*.*?\*\*)/g).map((part, j) => {
+                      if (part.startsWith('**') && part.endsWith('**')) {
+                        return <strong key={j} className="text-foreground font-bold text-lg block mt-4 mb-2 first:mt-0">{part.slice(2, -2)}</strong>;
+                      }
+                      return part;
+                    });
 
-                return <p key={i} className="text-foreground/90">{parts}</p>;
-              })}
-            </div>
+                    return <p key={i} className="text-foreground/90">{parts}</p>;
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="p-4 border-t bg-muted/10 shrink-0 flex justify-between items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => {
-              if (simplifiedItem) {
+              if (simplifiedItem?.simplified) {
                 navigator.clipboard.writeText(simplifiedItem.simplified);
                 toast.success("Copied to clipboard");
               }
@@ -423,9 +432,10 @@ export default function SearchPage() {
             <div className="flex gap-2">
               <Button
                 variant={speaking === 'simplified' ? "default" : "secondary"}
+                disabled={!simplifiedItem?.simplified}
                 onClick={() => {
-                  if (!simplifiedItem) return;
-                  // Clean text for TTS: remove markdown bold and list markers
+                  if (!simplifiedItem?.simplified) return;
+                  // Clean text for TTS
                   const textToRead = simplifiedItem.simplified
                     .replace(/\*\*/g, '')
                     .replace(/^[-•]\s*/gm, '')
@@ -442,19 +452,18 @@ export default function SearchPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Feature 2: High-Accessibility Simplify Dialog */}
-      {/* ... keeping simplify dialog as is if needed, or removing if SmartReader covers it ... */}
-
       {/* Feature 2: Document Preview Dialog (REAL SMART READER) */}
-      {viewingDoc && (
-        <SmartReader
-          doc={viewingDoc as any} // Cast because viewingDoc might be partial, but we will ensure it has id/title
-          isOpen={!!viewingDoc}
-          onClose={() => setViewingDoc(null)}
-          initialPage={viewingDoc ? (viewingDoc as any).page : 1}
-        />
-      )}
+      {
+        viewingDoc && (
+          <SmartReader
+            doc={viewingDoc as any} // Cast because viewingDoc might be partial, but we will ensure it has id/title
+            isOpen={!!viewingDoc}
+            onClose={() => setViewingDoc(null)}
+            initialPage={viewingDoc ? (viewingDoc as any).page : 1}
+          />
+        )
+      }
 
-    </main>
+    </main >
   );
 }

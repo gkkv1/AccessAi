@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { AccessLoader } from '@/components/AccessLoader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -349,8 +350,46 @@ export function SmartReader({ doc, isOpen, onClose, initialPage = 1 }: SmartRead
                                                 <Sparkles className="h-5 w-5" />
                                                 <span className="font-semibold">AI Simplified Version</span>
                                             </div>
-                                            {isSimplifying ? <div className="flex gap-2"><Loader2 className="animate-spin" /> Simplifying...</div> :
-                                                <div className="whitespace-pre-wrap font-medium">{simplifiedCache[fullDoc.id]}</div>}
+                                            {isSimplifying ? (
+                                                <div className="py-12 flex justify-center">
+                                                    <AccessLoader size="lg" text="Simplifying text for you..." />
+                                                </div>
+                                            ) : (
+                                                <div className="prose prose-slate dark:prose-invert max-w-none leading-relaxed space-y-3">
+                                                    {(simplifiedCache[fullDoc.id] || "").split('\n').map((line, i) => {
+                                                        const cleanLine = line.trim();
+                                                        if (!cleanLine) return <br key={i} />;
+
+                                                        // Handle Bullet Points
+                                                        if (cleanLine.startsWith('- ') || cleanLine.startsWith('• ')) {
+                                                            const content = cleanLine.substring(2);
+                                                            // Parse Bold in bullets
+                                                            const parts = content.split(/(\*\*.*?\*\*)/g).map((part, j) => {
+                                                                if (part.startsWith('**') && part.endsWith('**')) {
+                                                                    return <strong key={j} className="text-foreground font-bold">{part.slice(2, -2)}</strong>;
+                                                                }
+                                                                return part;
+                                                            });
+                                                            return (
+                                                                <div key={i} className="flex gap-2 items-start pl-2">
+                                                                    <span className="text-primary mt-1.5 shrink-0">•</span>
+                                                                    <span>{parts}</span>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        // Handle Regular Lines (Headers/Paragraphs)
+                                                        const parts = cleanLine.split(/(\*\*.*?\*\*)/g).map((part, j) => {
+                                                            if (part.startsWith('**') && part.endsWith('**')) {
+                                                                return <strong key={j} className="text-foreground font-bold text-lg block mt-4 mb-2 first:mt-0">{part.slice(2, -2)}</strong>;
+                                                            }
+                                                            return part;
+                                                        });
+
+                                                        return <p key={i} className="text-foreground/90">{parts}</p>;
+                                                    })}
+                                                </div>
+                                            )}
                                         </>
                                     ) : (
                                         <div className="whitespace-pre-line">
@@ -369,6 +408,12 @@ export function SmartReader({ doc, isOpen, onClose, initialPage = 1 }: SmartRead
                             </div>
 
                             {/* Floating Pagination */}
+                            {!isSimplified && !fullDoc.content_text && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm z-10">
+                                    <AccessLoader size="lg" text="Loading document content..." />
+                                </div>
+                            )}
+
                             {!isSimplified && (numPages || 0) > 1 && (
                                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-background/90 backdrop-blur border rounded-full px-6 py-3 shadow-lg z-20">
                                     <Button variant="outline" size="icon" onClick={() => setPageNumber(p => Math.max(1, p - 1))} disabled={pageNumber <= 1} className="rounded-full h-10 w-10"><ChevronLeft className="h-4 w-4" /></Button>
@@ -405,7 +450,11 @@ export function SmartReader({ doc, isOpen, onClose, initialPage = 1 }: SmartRead
                                                 <div className={cn("p-3 rounded-lg max-w-[85%]", msg.role === 'user' ? "bg-primary text-primary-foreground" : "bg-card border shadow-sm")}>{msg.text}</div>
                                             </div>
                                         ))}
-                                        {isChatLoading && <div className="flex gap-3"><Loader2 className="h-4 w-4 animate-spin" /> Thinking...</div>}
+                                        {isChatLoading && (
+                                            <div className="py-4">
+                                                <AccessLoader size="sm" text="Thinking..." />
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
