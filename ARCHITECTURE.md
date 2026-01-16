@@ -157,12 +157,23 @@ sequenceDiagram
     AI-->>API: JSON Data
     API-->>UI: Pre-filled Form
 
-    note over U, AI: Scenario 2: Voice-to-Form
-    U->>UI: Speaks: "My symptoms started yesterday..."
+    note over U, AI: Scenario 2: Smart Interview Mode (Chat)
+    U->>UI: Enters "Interview Mode"
+    loop Until Form Complete
+        AI-->>UI: Ask Question: "What is the project name?"
+        U->>UI: Speaks/Types: "The project is AccessAI"
+        UI->>API: Send Response Context
+        API->>AI: Analyze & Extract Data
+        AI-->>API: { field_update: { "project_name": "AccessAI" }, next_question: "Great, when does it start?" }
+        API-->>UI: Update Form & Ask Next Question
+    end
+
+    note over U, AI: Scenario 3: Voice-to-Form (Direct Field Input)
+    U->>UI: Selects specific field & Speaks
     UI->>API: POST /audio/transcribe
-    API->>AI: Whisper (Audio -> Text) -> GPT-4o (Extract JSON)
-    AI-->>API: { "symptoms": "Fever", "duration": "1 day" }
-    API-->>UI: Update Form Fields
+    API->>AI: Whisper (Audio -> Text)
+    AI-->>API: Text: "My symptoms started yesterday..."
+    API-->>UI: Stick text into current field
 ```
 
 ## 6. Advanced Transcription (Live & Upload)

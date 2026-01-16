@@ -32,15 +32,12 @@ export default function SearchPage() {
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [speaking, setSpeaking] = useState<string | null>(null);
 
-  // Feature 1: Search Modes
   const [searchMode, setSearchMode] = useState<'semantic' | 'fulltext'>('semantic');
 
-  // Feature 1: Voice Search Simulation State
   const [isVoiceListening, setIsVoiceListening] = useState(false);
   const [voiceStep, setVoiceStep] = useState<'listening' | 'recognized' | 'confirm'>('listening');
   const [recognizedText, setRecognizedText] = useState('');
 
-  // Feature 2: Accessibility UI State
   const [simplifiedItem, setSimplifiedItem] = useState<{ id: string, original: string, simplified: string } | null>(null);
   const [viewingDoc, setViewingDoc] = useState<{ id: string, title: string, content: string } | null>(null);
 
@@ -108,11 +105,7 @@ export default function SearchPage() {
     }
   };
 
-
-  // const navigate = useNavigate(); // Not needed anymore
-
   const handleReadFull = (result: any) => {
-    // Open Smart View Modal in-place
     const docId = result.document_id || result.id;
     const page = result.page || 1;
 
