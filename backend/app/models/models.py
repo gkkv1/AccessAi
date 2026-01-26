@@ -102,12 +102,20 @@ class Transcription(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
+    title = Column(String, nullable=True)  # User-friendly name for the transcription
     audio_file_path = Column(String, nullable=False)
-    transcript_text = Column(Text, nullable=False)
+    transcript_text = Column(Text, nullable=False)  # Full raw transcript
     
-    # AI Analysis
+    # Detailed segment data with timestamps and speakers
+    segments = Column(JSONB, default=[])  # [{start: 0.5, end: 2.0, speaker: "A", text: "Hello"}]
+    
+    # AI Analysis Results
     summary = Column(Text, nullable=True)
-    action_items = Column(JSONB, default=[]) # List of strings
-    sentiment_score = Column(Float, nullable=True) # -1 to 1 or 0 to 1
+    action_items = Column(JSONB, default=[])  # [{assignee: "John", task: "Email report", status: "pending"}]
+    key_concepts = Column(JSONB, default=[])  # ["WCAG 2.2", "Accessibility Audit", "Feb 15 Deadline"]
+    sentiment_score = Column(Float, nullable=True)  # -1.0 (Negative) to 1.0 (Positive)
+    
+    # Processing status
+    processed = Column(Boolean, default=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())

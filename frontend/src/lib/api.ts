@@ -98,13 +98,48 @@ export const endpoints = {
         return response.data;
     },
 
+
     // --- Transcriptions ---
-    transcribe: async (file: File) => {
+
+    uploadAudioFile: async (file: File, title?: string) => {
         const formData = new FormData();
         formData.append('file', file);
-        const response = await api.post<any>('/transcribe/', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
+        if (title) {
+            formData.append('title', title);
+        }
+        const response = await api.post<{ id: string; message: string; status: string }>(
+            '/transcribe/upload',
+            formData,
+            {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            }
+        );
+        return response.data;
+    },
+
+    getTranscription: async (id: string) => {
+        const response = await api.get<any>(`/transcribe/${id}`);
+        return response.data;
+    },
+
+    listTranscriptions: async () => {
+        const response = await api.get<any[]>('/transcribe/list');
+        return response.data;
+    },
+
+
+    analyzeTranscribedText: async (text: string, title?: string) => {
+        const response = await api.post<any>('/transcribe/analyze-text', null, {
+            params: {
+                text: text,
+                title: title || 'Browser Transcription'
+            }
         });
+        return response.data;
+    },
+
+    deleteTranscription: async (id: string) => {
+        const response = await api.delete(`/transcribe/${id}`);
         return response.data;
     },
 

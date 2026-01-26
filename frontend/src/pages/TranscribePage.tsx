@@ -32,6 +32,8 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { endpoints } from '@/lib/api';
+import { UploadProgressOverlay } from '@/components/UploadProgressOverlay';
 
 // --- Types ---
 interface TranscriptSegment {
@@ -100,6 +102,14 @@ export default function TranscribePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSignLanguage, setShowSignLanguage] = useState(false);
 
+  // Upload Progress State
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({
+    step: 1,
+    message: 'Uploading audio file...',
+    details: ''
+  });
+
   const { isFocusMode } = useFocus();
 
   // Refs
@@ -116,14 +126,167 @@ export default function TranscribePage() {
     toast.info("Microphone Active", { description: "Listening for speech..." });
   };
 
-  // 2. Upload Mode (Simulation)
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 2. Upload Mode (Whisper API - requires OpenAI key)
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      processUploadSimulation(file.name);
+      await processUpload(file); // Uses Whisper API for real transcription
     }
     // Reset input so same file triggers change again if needed
     e.target.value = '';
+  };
+
+  const processBrowserTranscription = async (file: File) => {
+    const loadingToast = toast.loading(`Processing ${file.name}...`, {
+      description: "🎯 FREE Browser Transcription - No API cost for audio!"
+    });
+
+    try {
+      // Step 1: Simulate browser-based transcription
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      toast.dismiss(loadingToast);
+      toast.info("Analyzing with AI...", {
+        description: "Extracting insights with GPT"
+      });
+
+      // Demo transcript (in production, this would come from Web Speech API)
+      const demoTranscript = `Hello everyone, thank you for joining today's meeting about accessibility and compliance. We need to discuss our Q1 requirements and WCAG 2.2 standards implementation. First, let's review the guidelines that must be completed by February 15th. John, can you please prepare the accessibility audit report by next week? We also need to schedule a follow-up meeting to review our progress on the new features. Emily, please coordinate with the development team on the keyboard navigation improvements. Does anyone have questions or concerns about these action items? Let's make sure we're all aligned on the timeline.`;
+
+      // Step 2: Send to backend for AI analysis
+      const result = await endpoints.analyzeTranscribedText(demoTranscript, file.name);
+
+      // Step 3: Transform and display results
+      const transformedSegments = result.segments.map((seg: any) => ({
+        id: seg.id,
+        start: seg.start,
+        end: seg.end,
+        speaker: seg.speaker,
+        text: seg.text,
+        sentiment: 'neutral' as const
+      }));
+
+      const transformedActionItems = result.action_items.map((item: any, idx: number) => ({
+        id: `ai-${idx}`,
+        text: typeof item === 'string' ? item : (item.task || item.text || 'Action item'),
+        assignee: typeof item === 'object' ? (item.assignee || 'Unassigned') : 'Unassigned',
+        isCompleted: typeof item === 'object' ? (item.status === 'completed') : false
+      }));
+
+      setViewMode('review');
+      setTranscript(transformedSegments);
+      setActionItems(transformedActionItems);
+      setElapsedTime(0);
+      setIsMeetingActive(true);
+
+      toast.success("✅ Analysis Complete!", {
+        description: `FREE browser transcription!\nKey concepts: ${result.key_concepts?.length || 0} | Actions: ${result.action_items?.length || 0}`
+      });
+
+    } catch (error: any) {
+      toast.dismiss(loadingToast);
+      toast.error("Processing failed", {
+        description: error.response?.data?.detail || error.message || "Please try again."
+      });
+      console.error('Transcription error:', error);
+    }
+  };
+
+  const processUpload = async (file: File) => {
+    setIsUploading(true);
+    setUploadProgress({ step: 1, message: 'Uploading audio file...', details: file.name });
+
+    try {
+      // Upload file to backend
+      const uploadResult = await endpoints.uploadAudioFile(file, file.name);
+
+      setUploadProgress({ step: 2, message: 'Transcribing with Whisper AI...', details: 'This may take 20-60 seconds' });
+
+      // Poll for completion
+      const transcriptionId = uploadResult.id;
+      let attempts = 0;
+      const maxAttempts = 60; // 60 seconds timeout for Whisper processing
+
+      const pollInterval = setInterval(async () => {
+        try {
+          attempts++;
+          const result = await endpoints.getTranscription(transcriptionId);
+
+          if (result.processed) {
+            clearInterval(pollInterval);
+
+            setUploadProgress({ step: 3, message: 'Processing complete!', details: 'Preparing your results...' });
+
+            // Transform API data to UI format
+            const transformedSegments = result.segments.map((seg: any) => ({
+              id: seg.id,
+              start: seg.start,
+              end: seg.end,
+              speaker: seg.speaker,
+              text: seg.text,
+              sentiment: 'neutral' as const
+            }));
+
+            // Transform action items
+            const transformedActionItems = result.action_items.map((item: any, idx: number) => ({
+              id: `ai-${idx}`,
+              text: typeof item === 'string' ? item : (item.task || item.text || 'Action item'),
+              assignee: typeof item === 'object' ? (item.assignee || 'Unassigned') : 'Unassigned',
+              isCompleted: typeof item === 'object' ? (item.status === 'completed') : false
+            }));
+
+            // Wait a moment to show success message
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            setTranscript(transformedSegments);
+            setActionItems(transformedActionItems);
+            setElapsedTime(0);
+            setIsMeetingActive(true);
+            setIsUploading(false);
+
+            // Switch to review mode
+            setViewMode('review');
+
+            // Show success toast after loader closes
+            setTimeout(() => {
+              toast.success('Transcription Complete!', {
+                description: `${transformedSegments.length} segments | ${result.key_concepts?.length || 0} concepts | ${result.action_items?.length || 0} actions`
+              });
+            }, 100);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            throw new Error('Processing timeout. Make sure OpenAI API key is configured.');
+          } else {
+            // Update progress
+            setUploadProgress({
+              step: 2,
+              message: 'Transcribing with Whisper AI',
+              details: `Processing... ${attempts}/${maxAttempts} seconds`
+            });
+          }
+        } catch (error) {
+          clearInterval(pollInterval);
+          setIsUploading(false);
+          console.error('Polling error:', error);
+          throw error;
+        }
+      }, 1000);
+
+    } catch (error: any) {
+      setIsUploading(false);
+      const errorMsg = error.response?.data?.detail || error.message || "Upload failed";
+
+      // Show error toast after loader closes
+      setTimeout(() => {
+        toast.error('Upload Failed', {
+          description: errorMsg.includes('401') || errorMsg.includes('API key')
+            ? "Invalid OpenAI API key. Please add a valid key to backend/.env"
+            : errorMsg
+        });
+      }, 100);
+
+      console.error('Upload error:', error);
+    }
   };
 
   const processUploadSimulation = (fileName: string) => {
@@ -306,11 +469,14 @@ export default function TranscribePage() {
           </Card>
         </div>
 
-        <div className="flex gap-4 text-sm text-muted-foreground">
-          <span className="flex items-center"><Check className="h-4 w-4 mr-1 text-green-500" /> WCAG 2.2 Compliant</span>
-          <span className="flex items-center"><Check className="h-4 w-4 mr-1 text-green-500" /> Speaker Recognition</span>
-          <span className="flex items-center"><Check className="h-4 w-4 mr-1 text-green-500" /> Secure Processing</span>
-        </div>
+        {/* Upload Progress Overlay */}
+        {isUploading && (
+          <UploadProgressOverlay
+            step={uploadProgress.step}
+            message={uploadProgress.message}
+            details={uploadProgress.details}
+          />
+        )}
       </main>
     )
   }
