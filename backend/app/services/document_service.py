@@ -2,7 +2,7 @@ import shutil
 import os
 import uuid
 from datetime import datetime
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 from sqlalchemy.orm import Session
 import uuid
 from app.models.models import Document as DocumentModel  # ORM model, NOT Pydantic schema
@@ -16,13 +16,28 @@ documents_db = []
 
 class DocumentService:
     async def upload_document(self, db: Session, file: UploadFile, user_id: uuid.UUID) -> dict:
-        # 1. Save File to Disk
+        # 1. Save File to Storage (Supabase)
         file_id = str(uuid.uuid4())
         file_ext = file.filename.split(".")[-1]
-        file_path = f"{UPLOAD_DIR}/{file_id}.{file_ext}"
         
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Use storage service
+        try:
+            from app.services.storage import storage_service
+            # If storage credentials are not set, this might fail or fallback if we added logic
+            # But assumes env vars are set for production/render
+            if storage_service.supabase:
+                file_path = await storage_service.upload_file(file, f"{file_id}.{file_ext}")
+            else:
+                # Fallback to local for dev if no supabase keys (optional, but safer to stick to one)
+                print("WARNING: Supabase not configured, using local storage (files will be lost on restart)")
+                file_path = f"{UPLOAD_DIR}/{file_id}.{file_ext}"
+                with open(file_path, "wb") as buffer:
+                    # Reset file position just in case
+                    await file.seek(0)
+                    shutil.copyfileobj(file.file, buffer)
+        except Exception as e:
+            print(f"Storage Error: {e}")
+            raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
             
         # 2. Save Metadata to DB using RAW SQL (bypass ORM entirely)
         from sqlalchemy import text

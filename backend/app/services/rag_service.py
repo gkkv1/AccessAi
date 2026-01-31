@@ -43,12 +43,33 @@ class RagService:
         
         try:
             # 2. Load File
-            if db_doc.file_type.lower() == "pdf":
-                loader = PyPDFLoader(db_doc.file_path)
-            else:
-                loader = TextLoader(db_doc.file_path)
-                
-            raw_docs = loader.load()
+            current_file_path = db_doc.file_path
+            is_temp_file = False
+            
+            # If path is a URL (Supabase), download to temp first
+            if current_file_path.startswith("http"):
+                try:
+                    from app.services.storage import storage_service
+                    file_ext = db_doc.file_type or "pdf"
+                    current_file_path = storage_service.download_file_to_temp(current_file_path, file_ext)
+                    is_temp_file = True
+                    print(f"Downloaded remote file to: {current_file_path}")
+                except Exception as e:
+                    print(f"Failed to download remote file: {e}")
+                    raise e
+
+            try:
+                if db_doc.file_type.lower() == "pdf":
+                    loader = PyPDFLoader(current_file_path)
+                else:
+                    loader = TextLoader(current_file_path)
+                    
+                raw_docs = loader.load()
+            finally:
+                # Cleanup temp file if we created one
+                if is_temp_file and os.path.exists(current_file_path):
+                    os.unlink(current_file_path)
+                    print("Cleaned up temp file")
             
             # 3. Split Text
             text_splitter = RecursiveCharacterTextSplitter(
