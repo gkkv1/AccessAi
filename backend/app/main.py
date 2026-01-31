@@ -19,10 +19,10 @@ models.Base.metadata.create_all(bind=engine)
 
 # CORS Configuration
 origins = [
-    "http://localhost:5173",  # Vite default
+    "http://localhost:5173",
     "http://localhost:3000",
-    "http://localhost:8080",  # Configured port
-    "*"  # For hackathon demo purposes, allow all
+    "https://access-ai-two.vercel.app",  # Explicitly allow Vercel
+    "*"  # Fallback
 ]
 
 app.add_middleware(
