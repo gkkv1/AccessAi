@@ -1,0 +1,13 @@
+
+    ACCESS.AI ACCESSIBILITY POLICY
+    
+    1. Purpose
+    The goal of ACCESS.AI is to ensure that all employees, regardless of disability, can access workplace documents.
+    
+    2. Technologies
+    We use advanced RAG (Retrieval Augmented Generation) to semantically understand documents.
+    We use WebAuthn for secure, passwordless authentication.
+    
+    3. Compliance
+    All features must adhere to WCAG 2.1 AA standards. Color contrast ratios must be at least 4.5:1.
+    

@@ -1,0 +1,29 @@
+# General
+.DS_Store
+.vscode/
+.idea/
+
+# Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Backend
+backend/venv/
+backend/.env
+backend/.pytest_cache/
+backend/__pycache__/
+backend/**/*.pyc
+backend/uploads/
+
+# Root level (if applicable)
+venv/
+.env
+*.pyc
+__pycache__/
+uploads/
