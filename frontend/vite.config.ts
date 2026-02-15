@@ -9,9 +9,9 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     strictPort: false,
-    hmr: {
-      clientPort: 443, // Use HTTPS port for HMR when accessing through ngrok
-    },
+    // hmr: {
+    //   clientPort: 443, // Use HTTPS port for HMR when accessing through ngrok
+    // },
     // Disable host checking to allow ngrok and other proxies
     cors: true,
     allowedHosts: ['all'], // Allow all hosts (including ngrok URLs)
