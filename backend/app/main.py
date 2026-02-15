@@ -11,11 +11,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Database initialization moved to init_db.py script
+# This prevents pgvector extension errors on startup
+# Run: python init_db.py before starting the server
 from app.db.session import engine
 from app.models import models
-# Create tables
-# Create tables
-models.Base.metadata.create_all(bind=engine)
 
 # CORS Configuration
 origins = [

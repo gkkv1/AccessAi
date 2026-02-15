@@ -8,6 +8,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    strictPort: false,
+    hmr: {
+      clientPort: 443, // Use HTTPS port for HMR when accessing through ngrok
+    },
+    // Disable host checking to allow ngrok and other proxies
+    cors: true,
+    allowedHosts: ['all', "savingly-flappy-miah.ngrok-free.dev"], // Allow all hosts (including ngrok URLs)
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

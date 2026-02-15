@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import jsPDF from 'jspdf';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -25,7 +27,8 @@ import {
   Smile,
   AlertTriangle,
   Zap,
-  Hand
+  Hand,
+  Loader2
 } from 'lucide-react';
 import { useFocus } from '@/contexts/FocusContext';
 import { Switch } from '@/components/ui/switch';
@@ -42,6 +45,7 @@ interface TranscriptSegment {
   end: number;
   speaker: string;
   text: string;
+  emotion?: string;
   sentiment?: 'neutral' | 'positive' | 'urgent' | 'question';
 }
 
@@ -50,6 +54,20 @@ interface ActionItem {
   text: string;
   assignee: string;
   isCompleted: boolean;
+}
+
+interface TranscriptionData {
+  id: string;
+  title: string;
+  audio_file_path: string;
+  transcript_text: string;
+  segments: TranscriptSegment[];
+  summary: string | null;
+  action_items: any[];
+  key_concepts: any[];
+  sentiment_score: number | null;
+  processed: boolean;
+  created_at: string;
 }
 
 // --- Mock Data: Q1 Compliance Training ---
@@ -88,7 +106,13 @@ const INITIAL_ACTION_ITEMS: ActionItem[] = [
   { id: 'a4', text: "Refactor Navigation Components", assignee: "Dev Team", isCompleted: false },
 ];
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 export default function TranscribePage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const transcriptionId = searchParams.get('id');
+
   // Common State
   const [viewMode, setViewMode] = useState<'landing' | 'live' | 'review'>('landing');
 
@@ -98,6 +122,7 @@ export default function TranscribePage() {
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
   const [currentCaption, setCurrentCaption] = useState<TranscriptSegment | null>(null);
   const [actionItems, setActionItems] = useState<ActionItem[]>(INITIAL_ACTION_ITEMS);
+  const [keyConcepts, setKeyConcepts] = useState<string[]>(KEY_CONCEPTS);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showSignLanguage, setShowSignLanguage] = useState(false);
@@ -110,10 +135,26 @@ export default function TranscribePage() {
     details: ''
   });
 
+  // Fetched Transcription Data
+  const [transcriptionData, setTranscriptionData] = useState<TranscriptionData | null>(null);
+  const [isLoadingTranscript, setIsLoadingTranscript] = useState(false);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+
   const { isFocusMode } = useFocus();
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Compute unique emotions from transcript
+  const uniqueEmotions = useMemo(() => {
+    const emotions = transcript
+      .map(segment => segment.emotion)
+      .filter((emotion): emotion is string => emotion !== undefined && emotion !== null && emotion !== '');
+
+    // Remove duplicates using Set
+    return Array.from(new Set(emotions));
+  }, [transcript]);
 
   // --- Handlers ---
 
@@ -243,6 +284,10 @@ export default function TranscribePage() {
             setElapsedTime(0);
             setIsMeetingActive(true);
             setIsUploading(false);
+            setTranscriptionData(result);
+
+            // Update URL with ID so data persists on refresh
+            navigate(`?id=${transcriptionId}`, { replace: true });
 
             // Switch to review mode
             setViewMode('review');
@@ -318,60 +363,208 @@ export default function TranscribePage() {
     setTranscript([]);
     setElapsedTime(0);
     setCurrentCaption(null);
+    setTranscriptionData(null);
+    navigate('?', { replace: true });
   };
 
-  // Timer & Playback Logic (Shared for Live & Review)
+  // Fetch transcription from URL parameter
   useEffect(() => {
+    if (transcriptionId) {
+      // Skip if already loaded this specific ID
+      if (transcriptionData?.id === transcriptionId) return;
+
+      setIsLoadingTranscript(true);
+      console.log('Fetching transcription ID:', transcriptionId);
+
+      endpoints.getTranscription(transcriptionId)
+        .then((data: TranscriptionData) => {
+          console.log('Transcription data received:', data);
+          console.log('Segments count:', data.segments?.length || 0);
+
+          setTranscriptionData(data);
+          setViewMode('review');
+
+          // Transform segments
+          if (!data.segments || data.segments.length === 0) {
+            console.warn('No segments found in transcription data');
+            setTranscript([]);
+          } else {
+            const transformedSegments = data.segments.map((seg: any) => ({
+              id: seg.id || String(Math.random()),
+              start: seg.start || 0,
+              end: seg.end || 0,
+              speaker: seg.speaker || 'Unknown',
+              text: seg.text || '',
+              emotion: seg.emotion,
+              sentiment: 'neutral' as const
+            }));
+
+            console.log('Transformed segments:', transformedSegments);
+            setTranscript(transformedSegments);
+          }
+
+          // Transform action items
+          const transformedActionItems = (data.action_items || []).map((item: any, idx: number) => ({
+            id: `ai-${idx}`,
+            text: typeof item === 'string' ? item : (item.task || item.text || 'Action item'),
+            assignee: typeof item === 'object' ? (item.assignee || 'Unassigned') : 'Unassigned',
+            isCompleted: typeof item === 'object' ? (item.status === 'completed') : false
+          }));
+
+          setActionItems(transformedActionItems);
+          setKeyConcepts(data.key_concepts || []);
+          setIsLoadingTranscript(false);
+
+          const segmentCount = data.segments?.length || 0;
+          toast.success('Transcript loaded!', {
+            description: `${segmentCount} segments${segmentCount === 0 ? ' (waiting for processing)' : ''}`
+          });
+        })
+        .catch((error) => {
+          console.error('Failed to fetch transcription:', error);
+          setIsLoadingTranscript(false);
+          toast.error('Failed to load transcript', {
+            description: error.response?.data?.detail || 'Transcription not found'
+          });
+        });
+    }
+  }, [transcriptionId]);
+
+  // Sync video time with caption
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !transcriptionData) return;
+
+    const handleTimeUpdate = () => {
+      setVideoCurrentTime(video.currentTime);
+
+      // Find active segment
+      const activeSegment = transcript.find(
+        seg => video.currentTime >= seg.start && video.currentTime <= seg.end
+      );
+      setCurrentCaption(activeSegment || null);
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [transcriptionData, transcript]);
+
+  const jumpToVideoTime = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      videoRef.current.play();
+    }
+  };
+
+  // Generate VTT (WebVTT) file for native video captions
+  const generateVTTFile = (segments: TranscriptSegment[]): string => {
+    let vtt = 'WEBVTT\n\n';
+
+    segments.forEach((seg, index) => {
+      // Format timestamps as HH:MM:SS.mmm
+      const formatVTTTime = (seconds: number): string => {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        const ms = Math.floor((seconds % 1) * 1000);
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+      };
+
+      vtt += `${index + 1}\n`;
+      vtt += `${formatVTTTime(seg.start)} --> ${formatVTTTime(seg.end)}\n`;
+      vtt += `<v ${seg.speaker}>${seg.text}\n\n`;
+    });
+
+    return vtt;
+  };
+
+  // Create VTT blob URL when transcript changes
+  const [vttUrl, setVttUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (transcript.length > 0 && transcriptionData) {
+      const vttContent = generateVTTFile(transcript);
+      const blob = new Blob([vttContent], { type: 'text/vtt' });
+      const url = URL.createObjectURL(blob);
+      setVttUrl(url);
+
+      // Cleanup old URL
+      return () => {
+        if (vttUrl) URL.revokeObjectURL(vttUrl);
+      };
+    }
+  }, [transcript, transcriptionData, vttUrl]);
+
+  // Sync button state with native video controls
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !transcriptionData) return;
+
+    const handlePlay = () => {
+      setIsMeetingActive(true);
+    };
+
+    const handlePause = () => {
+      setIsMeetingActive(false);
+    };
+
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+
+    return () => {
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+    };
+  }, [transcriptionData]);
+
+
+  // Timer & Playback Logic (ONLY for Live Mode simulations, not for loaded videos)
+  useEffect(() => {
+    // Skip this entirely if we have real transcription data
+    if (transcriptionData) return;
+
     let interval: NodeJS.Timeout;
 
-    if ((viewMode === 'live' || viewMode === 'review') && isMeetingActive) {
+    if (viewMode === 'live' && isMeetingActive) {
       interval = setInterval(() => {
         setElapsedTime(prev => {
-          // Loop or stop at end? Let's just stop for now or loop mock script
           const nextTime = prev + 1;
-          // If review mode and end reached, stop
           const maxDuration = MOCK_SCRIPT[MOCK_SCRIPT.length - 1].end + 5;
-          if (viewMode === 'review' && nextTime > maxDuration) {
+          if (nextTime > maxDuration) {
             setIsMeetingActive(false);
             return prev;
           }
           return nextTime;
         });
-
-        // Use a functional update to get the LATEST elapsedTime if needed, 
-        // but here we rely on the re-render cycle or just check next toggle.
-        // Actually best to lookup based on new time.
-        // For simplicity in this effect, we read the state next render.
-        // But to sync currentCaption perfectly we can do it here if we had the value.
-        // Let's keep the find logic but be aware of closure staleness if not careful.
-        // relying on dependency array [elapsedTime] which restarts interval every tick is fine but inefficient.
-        // Better:
       }, 1000);
     }
 
-    // Separate effect for syncing Caption to Time (efficient)
-    const activeSegment = MOCK_SCRIPT.find(
-      s => elapsedTime >= s.start && elapsedTime <= s.end
-    );
-    setCurrentCaption(activeSegment || null);
+    // Separate effect for syncing Caption to Time (for live mode only)
+    if (!transcriptionData && viewMode === 'live') {
+      const activeSegment = MOCK_SCRIPT.find(
+        s => elapsedTime >= s.start && elapsedTime <= s.end
+      );
+      setCurrentCaption(activeSegment || null);
 
-    // Live Mode specific: Accumulate transcript
-    if (viewMode === 'live' && activeSegment) {
-      setTranscript(prev => {
-        if (!prev.find(p => p.id === activeSegment.id)) {
-          return [...prev, activeSegment];
-        }
-        return prev;
-      });
-    }
+      // Live Mode specific: Accumulate transcript
+      if (activeSegment) {
+        setTranscript(prev => {
+          if (!prev.find(p => p.id === activeSegment.id)) {
+            return [...prev, activeSegment];
+          }
+          return prev;
+        });
+      }
 
-    // Auto-stop for live mode simulation
-    if (viewMode === 'live' && elapsedTime > 65) {
-      setIsMeetingActive(false);
+      // Auto-stop for live mode simulation
+      if (elapsedTime > 65) {
+        setIsMeetingActive(false);
+      }
     }
 
     return () => clearInterval(interval);
-  }, [viewMode, isMeetingActive, elapsedTime]);
+  }, [viewMode, isMeetingActive, elapsedTime, transcriptionData]);
+
 
   // Search Filter
   const filteredTranscript = useMemo(() => {
@@ -384,15 +577,174 @@ export default function TranscribePage() {
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleExport = (type: 'PDF' | 'TXT' | 'SRT') => {
-    toast.success(`Exporting transcript as ${type}...`);
+    if (type === 'TXT') {
+      // Generate text content with emotions in square brackets
+      let textContent = 'TRANSCRIPT\n';
+      textContent += '='.repeat(50) + '\n\n';
+
+      transcript.forEach((segment, index) => {
+        const timestamp = `[${formatTime(segment.start)} - ${formatTime(segment.end)}]`;
+        const emotion = segment.emotion ? ` [${segment.emotion.toUpperCase()}]` : '';
+        textContent += `${timestamp}${emotion}\n`;
+        textContent += `${segment.speaker}: ${segment.text}\n\n`;
+      });
+
+      // Add emotions summary at the end
+      if (uniqueEmotions.length > 0) {
+        textContent += '\n' + '='.repeat(50) + '\n';
+        textContent += 'EMOTIONS DETECTED\n';
+        textContent += '='.repeat(50) + '\n';
+        uniqueEmotions.forEach((emotion, i) => {
+          textContent += `${i + 1}. [${emotion.toUpperCase()}]\n`;
+        });
+      }
+
+      // Create blob and download
+      const blob = new Blob([textContent], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `transcript_${new Date().toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success('Transcript downloaded!');
+    } else if (type === 'PDF') {
+      // Generate PDF with formatted transcript
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const lineHeight = 7;
+      let yPosition = margin;
+
+      // Title
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TRANSCRIPT', margin, yPosition);
+      yPosition += lineHeight + 3;
+
+      // Draw separator line
+      doc.setLineWidth(0.5);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += lineHeight;
+
+      // Reset font for content
+      doc.setFontSize(10);
+
+      // Add transcript segments
+      transcript.forEach((segment) => {
+        // Check if we need a new page
+        if (yPosition > pageHeight - 30) {
+          doc.addPage();
+          yPosition = margin;
+        }
+
+        // Timestamp and emotion
+        doc.setFont('helvetica', 'bold');
+        const timestamp = `[${formatTime(segment.start)} - ${formatTime(segment.end)}]`;
+        const emotion = segment.emotion ? ` [${segment.emotion.toUpperCase()}]` : '';
+        doc.text(`${timestamp}${emotion}`, margin, yPosition);
+        yPosition += lineHeight;
+
+        // Speaker and text
+        doc.setFont('helvetica', 'normal');
+        const speakerText = `${segment.speaker}: `;
+        doc.setFont('helvetica', 'bold');
+        doc.text(speakerText, margin, yPosition);
+
+        // Calculate text width and wrap text
+        doc.setFont('helvetica', 'normal');
+        const speakerWidth = doc.getTextWidth(speakerText);
+        const maxWidth = pageWidth - margin * 2 - speakerWidth;
+        const lines = doc.splitTextToSize(segment.text, maxWidth);
+
+        // Draw first line next to speaker
+        doc.text(lines[0], margin + speakerWidth, yPosition);
+        yPosition += lineHeight;
+
+        // Draw remaining lines
+        for (let i = 1; i < lines.length; i++) {
+          if (yPosition > pageHeight - 30) {
+            doc.addPage();
+            yPosition = margin;
+          }
+          doc.text(lines[i], margin, yPosition);
+          yPosition += lineHeight;
+        }
+
+        yPosition += 3; // Add spacing between segments
+      });
+
+      // Add emotions summary on new page if we have emotions
+      if (uniqueEmotions.length > 0) {
+        doc.addPage();
+        yPosition = margin;
+
+        // Title
+        doc.setFontSize(18);
+        doc.setFont('helvetica', 'bold');
+        doc.text('EMOTIONS DETECTED', margin, yPosition);
+        yPosition += lineHeight + 3;
+
+        // Draw separator line
+        doc.line(margin, yPosition, pageWidth - margin, yPosition);
+        yPosition += lineHeight;
+
+        // List emotions
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        uniqueEmotions.forEach((emotion, i) => {
+          if (yPosition > pageHeight - 30) {
+            doc.addPage();
+            yPosition = margin;
+          }
+          doc.text(`${i + 1}. [${emotion.toUpperCase()}]`, margin + 5, yPosition);
+          yPosition += lineHeight;
+        });
+      }
+
+      // Save PDF
+      doc.save(`transcript_${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success('PDF downloaded!');
+    } else {
+      toast.success(`Exporting transcript as ${type}...`);
+    }
   };
 
   // --- Render ---
+  // Debug logging
+  if (transcript.length > 0) {
+    console.log('=== SEGMENT TIMING DEBUG ===');
+    console.log('Video duration:', document?.querySelector('video')?.duration, 'seconds');
+    console.log('Total segments:', transcript.length);
+    console.log('First 3 segments:');
+    transcript.slice(0, 3).forEach((seg, i) => {
+      console.log(`  [${i}] ${seg.start}s-${seg.end}s: "${seg.text.substring(0, 50)}..."`);
+    });
+    console.log('Last segment:', transcript[transcript.length - 1]?.end, 'seconds');
+    console.log('===========================');
+  }
+
+  // Loading state when fetching from URL
+  if (isLoadingTranscript) {
+    return (
+      <main className="container py-12 flex flex-col items-center justify-center min-h-[80vh] gap-8">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+          <h2 className="text-2xl font-semibold">Loading Transcript...</h2>
+          <p className="text-muted-foreground">Fetching transcript data from server</p>
+        </div>
+      </main>
+    );
+  }
 
   if (viewMode === 'landing') {
     return (
@@ -523,7 +875,24 @@ export default function TranscribePage() {
           )}
 
           {(viewMode === 'live' || viewMode === 'review') && (
-            <Button variant={isMeetingActive ? "secondary" : "default"} onClick={() => setIsMeetingActive(!isMeetingActive)}>
+            <Button
+              variant={isMeetingActive ? "secondary" : "default"}
+              onClick={() => {
+                // If we have a real video, control it
+                if (transcriptionData && videoRef.current) {
+                  if (videoRef.current.paused) {
+                    videoRef.current.play();
+                    setIsMeetingActive(true);
+                  } else {
+                    videoRef.current.pause();
+                    setIsMeetingActive(false);
+                  }
+                } else {
+                  // Fallback for mock/live mode
+                  setIsMeetingActive(!isMeetingActive);
+                }
+              }}
+            >
               {isMeetingActive ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
               {isMeetingActive ? "Pause" : "Resume"}
             </Button>
@@ -532,65 +901,116 @@ export default function TranscribePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+      {/* Main Layout: 2 Rows - Top: Video + Transcript, Bottom: Insights */}
+      <div className="flex-1 flex flex-col gap-6">
 
-        {/* Main Content: Video/Captions & Transcript */}
-        <div className={cn("flex flex-col gap-4 min-h-0 transition-all duration-500", isFocusMode ? "lg:col-span-3" : "lg:col-span-2")}>
+        {/* Top Row: Video (LEFT) + Transcript (RIGHT) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[600px]">
 
-          {/* 1. Video Mockup / Live Caption Area */}
-          <div className="relative bg-black rounded-xl overflow-hidden h-64 shrink-0 shadow-lg group">
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-              {/* Visualizer */}
-              <div className="flex items-center gap-1">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className={cn(
-                    "w-3 bg-primary rounded-full animate-[bounce_1s_infinite]",
-                    !isMeetingActive && viewMode === 'live' && "animate-none h-2 opacity-30",
-                    viewMode === 'review' && "h-2 opacity-30"
-                  )} style={{ height: isMeetingActive ? `${Math.random() * 40 + 20}px` : '10px', animationDelay: `${i * 0.1}s` }} />
-                ))}
-              </div>
-            </div>
-
-            {/* Live Caption Overlay */}
-            <div className="absolute bottom-4 left-4 right-4 transition-all duration-300 flex justify-center">
-              {currentCaption ? (
-                <div className="bg-black/80 backdrop-blur-sm p-3 rounded-lg border-l-4 border-primary shadow-2xl max-w-3xl w-full">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-primary font-bold text-xs uppercase tracking-wider">{currentCaption.speaker}</span>
-                    <span className="text-slate-400 text-[10px]">{formatTime(currentCaption.start)}</span>
+          {/* LEFT: Video Player */}
+          <div className="flex flex-col gap-4 h-full">
+            {/* 1. Video Player or Live Caption Area */}
+            <div className="relative bg-black rounded-xl overflow-hidden h-full shadow-lg group">
+              {transcriptionData ? (
+                /* Real Video Player */
+                <video
+                  ref={videoRef}
+                  src={`${API_BASE_URL}/${transcriptionData.audio_file_path}`}
+                  controls
+                  crossOrigin="anonymous"
+                  className="w-full h-full object-contain"
+                  onLoadedMetadata={() => {
+                    // Automatically enable captions when video loads
+                    if (videoRef.current) {
+                      const tracks = videoRef.current.textTracks;
+                      if (tracks && tracks.length > 0) {
+                        tracks[0].mode = 'showing'; // Force captions to show
+                        console.log('Captions enabled automatically');
+                      }
+                    }
+                  }}
+                  onError={(e) => {
+                    console.error('Video load error:', e);
+                    toast.error('Video failed to load', {
+                      description: 'Check that the video file exists on the server'
+                    });
+                  }}
+                >
+                  {/* Native Video Subtitles/Captions */}
+                  {vttUrl && (
+                    <track
+                      kind="captions"
+                      label="English"
+                      srcLang="en"
+                      src={vttUrl}
+                      default
+                    />
+                  )}
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                /* Mock Visualizer for Live/Demo Mode */
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+                  {/* Visualizer */}
+                  <div className="flex items-center gap-1">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className={cn(
+                        "w-3 bg-primary rounded-full animate-[bounce_1s_infinite]",
+                        !isMeetingActive && viewMode === 'live' && "animate-none h-2 opacity-30",
+                        viewMode === 'review' && "h-2 opacity-30"
+                      )} style={{ height: isMeetingActive ? `${Math.random() * 40 + 20}px` : '10px', animationDelay: `${i * 0.1}s` }} />
+                    ))}
                   </div>
-                  <p className="text-white text-base md:text-lg font-medium leading-relaxed">
-                    {currentCaption.text}
-                  </p>
                 </div>
-              ) : ((viewMode === 'live' || viewMode === 'review') && isMeetingActive) ? (
-                <div className="bg-black/60 backdrop-blur-sm p-3 rounded-lg inline-block">
-                  <p className="text-slate-300 text-sm flex items-center">
-                    <Mic className="h-4 w-4 mr-2 animate-pulse" />
-                    {viewMode === 'live' ? "Listening..." : "Playing Simulation..."}
-                  </p>
+              )}
+
+              {/* Live Caption Overlay - Only show for live mode, hidden when using native video captions */}
+              {!transcriptionData && (
+                <div className="absolute bottom-16 left-4 right-4 transition-all duration-300 flex justify-center pointer-events-none">
+                  {currentCaption ? (
+                    <div className="bg-black/80 backdrop-blur-sm p-3 rounded-lg border-l-4 border-primary shadow-2xl max-w-3xl w-full">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-primary font-bold text-xs uppercase tracking-wider">{currentCaption.speaker}</span>
+                        {currentCaption.emotion && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 h-5">
+                            {currentCaption.emotion}
+                          </Badge>
+                        )}
+                        <span className="text-slate-400 text-[10px]">{formatTime(currentCaption.start)}</span>
+                      </div>
+                      <p className="text-white text-base md:text-lg font-medium leading-relaxed">
+                        {currentCaption.text}
+                      </p>
+                    </div>
+                  ) : ((viewMode === 'live' || viewMode === 'review') && isMeetingActive && !transcriptionData) ? (
+                    <div className="bg-black/60 backdrop-blur-sm p-3 rounded-lg inline-block">
+                      <p className="text-slate-300 text-sm flex items-center">
+                        <Mic className="h-4 w-4 mr-2 animate-pulse" />
+                        {viewMode === 'live' ? "Listening..." : "Playing Simulation..."}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+              )}
+              {/* Sign Language Avatar Overlay (PIP) */}
+              {showSignLanguage && viewMode === 'live' && (
+                <div className="absolute top-2 right-2 w-20 h-28 md:w-28 md:h-36 bg-slate-800 rounded-lg border border-primary shadow-xl overflow-hidden animate-in zoom-in-50 fade-in duration-300 z-20">
+                  <div className="absolute top-0 left-0 right-0 bg-black/60 p-0.5 text-[8px] text-center text-white font-mono uppercase tracking-wider">
+                    Sign Interpreter
+                  </div>
+                  {/* Placeholder for 3D Avatar */}
+                  <img
+                    src="/avatar_placeholder.png"
+                    alt="AI Sign Language Interpreter"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
             </div>
-            {/* Sign Language Avatar Overlay (PIP) */}
-            {showSignLanguage && viewMode === 'live' && (
-              <div className="absolute top-2 right-2 w-20 h-28 md:w-28 md:h-36 bg-slate-800 rounded-lg border border-primary shadow-xl overflow-hidden animate-in zoom-in-50 fade-in duration-300 z-20">
-                <div className="absolute top-0 left-0 right-0 bg-black/60 p-0.5 text-[8px] text-center text-white font-mono uppercase tracking-wider">
-                  Sign Interpreter
-                </div>
-                {/* Placeholder for 3D Avatar */}
-                <img
-                  src="/avatar_placeholder.png"
-                  alt="AI Sign Language Interpreter"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
           </div>
 
-          {/* 2. Transcript Search & List */}
-          <Card className="flex-1 flex flex-col min-h-0 border-t-4 border-t-primary/20">
+          {/* RIGHT: Transcript */}
+          <Card className="flex flex-col min-h-0 border-t-4 border-t-primary/20">
             <div className="p-4 border-b flex items-center justify-between gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -611,134 +1031,169 @@ export default function TranscribePage() {
               </div>
             </div>
 
-            <ScrollArea className="flex-1 p-4">
-              <div className="space-y-6">
+            <div className="flex-1 overflow-auto p-4 bg-background">
+              <div className="space-y-2">
                 {filteredTranscript.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground">
-                    {transcript.length === 0 ?
-                      (viewMode === 'live' ? "Captions will appear here..." : "Empty Transcript")
-                      : "No search matches."
-                    }
+                  <div className="text-center py-10 text-muted-foreground space-y-2">
+                    {transcript.length === 0 ? (
+                      <>
+                        {viewMode === 'live' ? (
+                          <p>Captions will appear here...</p>
+                        ) : transcriptionData && !transcriptionData.processed ? (
+                          <>
+                            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
+                            <p className="font-semibold">Transcription Processing...</p>
+                            <p className="text-sm">This may take 20-60 seconds. Refresh to check status.</p>
+                          </>
+                        ) : (
+                          <p>Empty Transcript</p>
+                        )}
+                      </>
+                    ) : (
+                      <p>No search matches.</p>
+                    )}
                   </div>
                 ) : (
-                  filteredTranscript.map((segment) => (
-                    <div
-                      key={segment.id}
-                      className={cn(
-                        "flex gap-4 group p-3 rounded-lg transition-colors border-l-2 border-transparent",
-                        currentCaption?.id === segment.id
-                          ? "bg-primary/10 border-primary"
-                          : "hover:bg-muted/50"
-                      )}
-                    >
-                      <div className="w-12 shrink-0 text-xs text-muted-foreground pt-1.5 font-mono text-right">
-                        {formatTime(segment.start)}
-                      </div>
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-primary">{segment.speaker}</span>
-                          {/* Sentiment Badge */}
-                          {segment.sentiment && (
-                            <Badge variant="outline" className={cn(
-                              "text-[10px] px-1.5 h-5",
-                              segment.sentiment === 'urgent' && "text-red-600 border-red-200 bg-red-50",
-                              segment.sentiment === 'positive' && "text-green-600 border-green-200 bg-green-50",
-                              segment.sentiment === 'question' && "text-blue-600 border-blue-200 bg-blue-50"
-                            )}>
-                              {segment.sentiment === 'urgent' && <AlertTriangle className="h-3 w-3 mr-1" />}
-                              {segment.sentiment === 'positive' && <Smile className="h-3 w-3 mr-1" />}
-                              {segment.sentiment === 'question' && <Lightbulb className="h-3 w-3 mr-1" />}
-                              {segment.sentiment}
-                            </Badge>
-                          )}
+                  filteredTranscript.map((segment) => {
+                    const isActive = transcriptionData
+                      ? videoCurrentTime >= segment.start && videoCurrentTime <= segment.end
+                      : currentCaption?.id === segment.id;
+
+                    return (
+                      <div
+                        key={segment.id}
+                        onClick={() => transcriptionData && jumpToVideoTime(segment.start)}
+                        className={cn(
+                          "flex gap-4 group p-3 rounded-lg transition-colors border-l-2 border-transparent",
+                          isActive
+                            ? "bg-primary/10 border-primary"
+                            : "hover:bg-muted/50",
+                          transcriptionData && "cursor-pointer"
+                        )}
+                      >
+                        <div className="w-12 shrink-0 text-xs text-muted-foreground pt-1.5 font-mono text-right">
+                          {formatTime(segment.start)}
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm text-primary">{segment.speaker}</span>
+                            {/* Emotion Badge */}
+                            {segment.emotion && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 h-5">
+                                {segment.emotion}
+                              </Badge>
+                            )}
+                            {/* Sentiment Badge */}
+                            {segment.sentiment && (
+                              <Badge variant="outline" className={cn(
+                                "text-[10px] px-1.5 h-5",
+                                segment.sentiment === 'urgent' && "text-red-600 border-red-200 bg-red-50",
+                                segment.sentiment === 'positive' && "text-green-600 border-green-200 bg-green-50",
+                                segment.sentiment === 'question' && "text-blue-600 border-blue-200 bg-blue-50"
+                              )}>
+                                {segment.sentiment === 'urgent' && <AlertTriangle className="h-3 w-3 mr-1" />}
+                                {segment.sentiment === 'positive' && <Smile className="h-3 w-3 mr-1" />}
+                                {segment.sentiment === 'question' && <Lightbulb className="h-3 w-3 mr-1" />}
+                                {segment.sentiment}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-foreground/90 leading-relaxed text-base">
+                            {searchQuery ? (
+                              segment.text.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
+                                part.toLowerCase() === searchQuery.toLowerCase()
+                                  ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-900 text-inherit px-0.5 rounded">{part}</mark>
+                                  : part
+                              )
+                            ) : segment.text}
+                          </p>
                         </div>
                       </div>
-                      <p className="text-foreground/90 leading-relaxed text-base">
-                        {searchQuery ? (
-                          segment.text.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
-                            part.toLowerCase() === searchQuery.toLowerCase()
-                              ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-900 text-inherit px-0.5 rounded">{part}</mark>
-                              : part
-                          )
-                        ) : segment.text}
-                      </p>
-                    </div>
-
-                  ))
+                    );
+                  })
                 )}
                 <div id="transcript-end" />
               </div>
-            </ScrollArea>
+            </div>
           </Card>
         </div>
 
-        {/* Sidebar: Insights - HIDDEN IN FOCUS MODE */}
-        <div className={cn("flex flex-col gap-6 min-h-0 overflow-y-auto transition-all duration-500", isFocusMode ? "hidden w-0 opacity-0" : "lg:col-span-1 border-l pl-6")}>
-
+        {/* Bottom Row: Insights (Full Width) */}
+        <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6", isFocusMode && "hidden")}>
           {/* Key Concepts */}
-          <Card className="p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
-                <Lightbulb className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-              </div>
-              <h3 className="font-semibold">Key Concepts</h3>
+
+
+        </div>
+        <Card className="p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+              <Lightbulb className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
             </div>
-            <div className="space-y-3">
-              {KEY_CONCEPTS.map((concept, i) => (
+            <h3 className="font-semibold">Key Concepts</h3>
+          </div>
+          <div className="space-y-3">
+            {keyConcepts.length > 0 ? (
+              keyConcepts.map((concept: any, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm bg-muted/50 p-2 rounded">
                   <span className="bg-primary/10 text-primary w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0 mt-0.5">
                     {i + 1}
                   </span>
-                  <span>{concept}</span>
+                  <span>{typeof concept === 'string' ? concept : (concept?.text || concept?.concept || 'Concept')}</span>
                 </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Action Items */}
-          <Card className="p-5 shadow-sm flex-1">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                <ListTodo className="h-5 w-5 text-green-600 dark:text-green-400" />
-              </div>
-              <h3 className="font-semibold">Action Items</h3>
-            </div>
-            <div className="space-y-2">
-              {actionItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-3 p-3 rounded border bg-card hover:shadow-sm transition-all cursor-pointer"
-                  onClick={() => setActionItems(prev => prev.map(a => a.id === item.id ? { ...a, isCompleted: !a.isCompleted } : a))}
-                >
-                  <div className={cn(
-                    "w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors",
-                    item.isCompleted ? "bg-green-500 border-green-500" : "border-muted-foreground"
-                  )}>
-                    {item.isCompleted && <Check className="h-3.5 w-3.5 text-white" />}
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <p className={cn("text-sm font-medium", item.isCompleted && "line-through text-muted-foreground")}>
-                      {item.text}
-                    </p>
-                    <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-normal">
-                      Assigned to {item.assignee}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <div className="p-4 bg-muted/30 rounded-lg border text-center">
-            <div className="flex gap-2 justify-center">
-              <Button size="sm" variant="outline" onClick={() => handleExport('PDF')}>Export PDF</Button>
-              <Button size="sm" variant="outline" onClick={() => handleExport('TXT')}>Save Text</Button>
-            </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No key concepts identified yet
+              </p>
+            )}
           </div>
+        </Card>
 
+        {/* Action Items */}
+        <Card className="p-5 shadow-sm flex-1">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+              <ListTodo className="h-5 w-5 text-green-600 dark:text-green-400" />
+            </div>
+            <h3 className="font-semibold">Action Items</h3>
+          </div>
+          <div className="space-y-2">
+            {actionItems.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-start gap-3 p-3 rounded border bg-card hover:shadow-sm transition-all cursor-pointer"
+                onClick={() => setActionItems(prev => prev.map(a => a.id === item.id ? { ...a, isCompleted: !a.isCompleted } : a))}
+              >
+                <div className={cn(
+                  "w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors",
+                  item.isCompleted ? "bg-green-500 border-green-500" : "border-muted-foreground"
+                )}>
+                  {item.isCompleted && <Check className="h-3.5 w-3.5 text-white" />}
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className={cn("text-sm font-medium", item.isCompleted && "line-through text-muted-foreground")}>
+                    {item.text}
+                  </p>
+                  <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-normal">
+                    Assigned to {item.assignee}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <div className="p-4 bg-muted/30 rounded-lg border text-center">
+          <div className="flex gap-2 justify-center">
+            <Button size="sm" variant="outline" onClick={() => handleExport('PDF')}>Export PDF</Button>
+            <Button size="sm" variant="outline" onClick={() => handleExport('TXT')}>Save Text</Button>
+          </div>
         </div>
-
       </div>
-    </main >
+      {/* End Bottom Insights Grid */}
+
+      {/* End Main Layout Wrapper */}
+
+    </main>
   );
 }

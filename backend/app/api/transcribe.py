@@ -50,12 +50,13 @@ def process_transcription_task(
     try:
         print(f"Starting background processing for transcription {transcription_id}")
         
-        # Process the transcription
+        # Process the transcription (UPDATE existing record)
         result = transcription_service.process_transcription(
             user_id=user_id,
             audio_file_path=audio_file_path,
             title=title,
-            db=db
+            db=db,
+            transcription_id=transcription_id  # Pass ID to update existing record
         )
         
         print(f"Background processing complete for {transcription_id}")

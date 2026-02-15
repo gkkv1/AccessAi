@@ -9,31 +9,87 @@ This service integrates with:
 import os
 import traceback
 from typing import Dict, List, Optional
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
 from sqlalchemy.orm import Session
 from app.models.models import Transcription, User
+from app.core.config import settings
 
 
 class TranscriptionService:
     def __init__(self):
-        """Initialize OpenAI client for Whisper and GPT APIs."""
-        api_key = os.getenv("OPENAI_API_KEY")
+        """Initialize separate clients for Whisper and GPT with provider-based routing."""
         
-        if not api_key:
-            print("WARNING: OPENAI_API_KEY not found in environment variables")
+        provider = settings.MODEL_PROVIDER
         
-        # For Whisper API, always use OpenAI directly (not OpenRouter)
-        # Whisper is a different endpoint that OpenRouter doesn't support
-        self.whisper_client = OpenAI(api_key=api_key)
-        
-        # For GPT analysis, use OpenRouter if configured
-        if api_key and api_key.startswith("sk-or-"):
-            base_url = os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-            self.gpt_client = OpenAI(api_key=api_key, base_url=base_url)
-            print(f"Using OpenRouter for GPT: {base_url}")
+        # Whisper Client - Azure or OpenAI based on provider
+        if provider == "azure_openai":
+            # Use Azure Whisper
+            azure_key = settings.AZURE_OPENAI_API_KEY
+            azure_endpoint = settings.AZURE_OPENAI_ENDPOINT
+            azure_version = settings.AZURE_OPENAI_API_VERSION
+            
+            if azure_key and azure_endpoint:
+                self.whisper_client = AzureOpenAI(
+                    api_key=azure_key,
+                    azure_endpoint=azure_endpoint,
+                    api_version=azure_version
+                )
+                print(f"Whisper: Using Azure OpenAI - {settings.AZURE_WHISPER_DEPLOYMENT}")
+            else:
+                self.whisper_client = None
+                print("WARNING: Azure OpenAI configuration incomplete - Whisper transcription unavailable")
         else:
-            self.gpt_client = OpenAI(api_key=api_key)
-            print("Using OpenAI API for both Whisper and GPT")
+            # Use OpenAI Whisper
+            openai_key = os.getenv("OPENAI_API_KEY")
+            
+            if openai_key and not openai_key.startswith("sk-or-"):
+                self.whisper_client = OpenAI(api_key=openai_key)
+                print("Whisper: Using OpenAI")
+            else:
+                self.whisper_client = None
+                if openai_key and openai_key.startswith("sk-or-"):
+                    print("WARNING: OpenRouter key detected - Whisper unavailable")
+                else:
+                    print("WARNING: OPENAI_API_KEY not found - Whisper unavailable")
+        
+        # GPT Client - Provider-based routing
+        provider = settings.MODEL_PROVIDER
+        
+        if provider == "azure_openai":
+            azure_key = settings.AZURE_OPENAI_API_KEY
+            azure_endpoint = settings.AZURE_OPENAI_ENDPOINT
+            azure_version = settings.AZURE_OPENAI_API_VERSION
+            
+            if not azure_key or not azure_endpoint:
+                raise ValueError("Azure OpenAI configuration incomplete. Please set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in .env")
+            
+            self.gpt_client = AzureOpenAI(
+                api_key=azure_key,
+                azure_endpoint=azure_endpoint,
+                api_version=azure_version
+            )
+            print(f"GPT: Using Azure OpenAI at {azure_endpoint}")
+        
+        elif provider == "openrouter":
+            or_key = os.getenv("OPENROUTER_API_KEY", openai_key)
+            self.gpt_client = OpenAI(
+                api_key=or_key,
+                base_url="https://openrouter.ai/api/v1"
+            )
+            print("GPT: Using OpenRouter")
+        
+        else:  # Default to OpenAI
+            self.gpt_client = OpenAI(api_key=openai_key)
+            print("GPT: Using OpenAI")
+    
+    def _get_gpt_model_name(self) -> str:
+        """Get the correct GPT model name based on provider."""
+        if settings.MODEL_PROVIDER == "azure_openai":
+            # For Azure, use the deployment name
+            return settings.AZURE_OPENAI_DEPLOYMENT
+        else:
+            # For OpenAI/OpenRouter, use the model name from settings
+            return settings.LLM_MODEL
     
     def transcribe_audio(self, audio_file_path: str) -> Dict:
         """
@@ -48,41 +104,73 @@ class TranscriptionService:
             - segments: List of timestamped segments with speaker info
         """
         try:
+            # Check if Whisper client is available
+            if not self.whisper_client:
+                if settings.MODEL_PROVIDER == "azure_openai":
+                    raise Exception(
+                        "Azure Whisper transcription unavailable. "
+                        "Please deploy the Whisper model in your Azure OpenAI resource first. "
+                        "Go to Azure Portal → Your Azure OpenAI resource → Model deployments → Create deployment → Select 'whisper' model."
+                    )
+                else:
+                    raise Exception("Whisper transcription unavailable. Please set a valid OpenAI API key in your .env file.")
+            
             print(f"Transcribing audio file: {audio_file_path}")
             
             with open(audio_file_path, "rb") as audio_file:
-                # Use simpler API call for better compatibility
+                # Use provider-specific model name
+                if settings.MODEL_PROVIDER == "azure_openai":
+                    model_name = settings.AZURE_WHISPER_DEPLOYMENT
+                else:
+                    model_name = "whisper-1"  # OpenAI Whisper model
+                
                 transcript = self.whisper_client.audio.transcriptions.create(
-                    model="whisper-1",
+                    model=model_name,
                     file=audio_file,
-                    response_format="text"  # Simplified - just get text
+                    response_format="verbose_json",  # Get detailed timestamps
+                    timestamp_granularities=["segment"]  # Get segment-level timestamps
                 )
             
-            # Extract full text (response is a string in text format)
-            full_text = transcript
+            # Extract full text from verbose_json response
+            full_text = transcript.text
             
-            # Create simple segments from full text (split by sentences)
-            # This is a simplified approach - real timestamps would require verbose_json
-            # but that's causing 405 errors
-            sentences = full_text.split('. ')
+            # Use Whisper's actual segments with REAL timestamps
             segments = []
-            current_time = 0.0
-            
-            for i, sentence in enumerate(sentences):
-                if sentence.strip():
-                    # Estimate duration based on word count (roughly 2 words/second)
-                    word_count = len(sentence.split())
-                    duration = max(2.0, word_count / 2.0)  # At least 2 seconds per segment
+            if hasattr(transcript, 'segments') and transcript.segments:
+                print(f"Using {len(transcript.segments)} segments from Whisper with real timestamps")
+                for i, seg in enumerate(transcript.segments):
+                    # Handle both dict and object access
+                    start = seg.get('start', 0) if isinstance(seg, dict) else getattr(seg, 'start', 0)
+                    end = seg.get('end', 0) if isinstance(seg, dict) else getattr(seg, 'end', 0)
+                    text = seg.get('text', '') if isinstance(seg, dict) else getattr(seg, 'text', '')
                     
                     segments.append({
                         "id": str(i),
-                        "start": current_time,
-                        "end": current_time + duration,
-                        "speaker": f"Speaker {(i % 3) + 1}",  # Rotate between 3 speakers
-                        "text": sentence.strip()
+                        "start": start,  # Real timestamp from Whisper
+                        "end": end,      # Real timestamp from Whisper
+                        "speaker": f"Speaker {(i % 3) + 1}",  # Will be updated by GPT analysis
+                        "text": text.strip()
                     })
-                    
-                    current_time += duration
+            else:
+                # Fallback: Create simple segments from full text (shouldn't happen with verbose_json)
+                print("WARNING: No segments in Whisper response, using fallback estimation")
+                sentences = full_text.split('. ')
+                current_time = 0.0
+                
+                for i, sentence in enumerate(sentences):
+                    if sentence.strip():
+                        word_count = len(sentence.split())
+                        duration = max(2.0, word_count / 2.0)
+                        
+                        segments.append({
+                            "id": str(i),
+                            "start": current_time,
+                            "end": current_time + duration,
+                            "speaker": f"Speaker {(i % 3) + 1}",
+                            "text": sentence.strip()
+                        })
+                        
+                        current_time += duration
             
             print(f"Transcription complete: {len(full_text)} characters, {len(segments)} segments")
             
@@ -98,7 +186,7 @@ class TranscriptionService:
     
     def analyze_transcript(self, transcript_text: str, segments: List[Dict]) -> Dict:
         """
-        Analyze transcript using GPT to extract insights.
+        Analyze transcript using GPT to extract insights, identify speakers, and detect emotions.
         
         Args:
             transcript_text: Full transcript text
@@ -110,73 +198,136 @@ class TranscriptionService:
             - action_items: List of action items with assignees
             - key_concepts: List of important topics discussed
             - sentiment_score: Overall sentiment (-1.0 to 1.0)
+            - speakers: List of speaker info with emotions
+            - segments: Updated segments with speaker and emotion tags
         """
         try:
-            print("Analyzing transcript with GPT...")
+            print("Analyzing transcript with GPT (speaker + emotion detection)...")
             
-            # Construct analysis prompt
-            prompt = f"""Analyze the following meeting transcript and provide:
+            # Format segments for analysis
+            segments_text = "\n".join([
+                f"[{seg.get('start', 0):.1f}s - {seg.get('end', 0):.1f}s]: {seg.get('text', '')}"
+                for seg in segments
+            ])
+            
+            # Comprehensive analysis prompt
+            prompt = f"""Analyze this conversation transcript and provide:
 
-1. A concise executive summary (2-3 sentences)
-2. Action items mentioned (if any), formatted as JSON with fields: task, assignee, status
-3. Key concepts or topics discussed (list of strings)
-4. Overall sentiment score from -1.0 (very negative) to 1.0 (very positive)
+1. **Speaker Identification**: Identify unique speakers and label them as "Speaker 1", "Speaker 2", etc.
+2. **Emotion Detection**: For each segment, detect the speaker's emotion based on tone, word choice, and context.
+3. **Summary**: Concise executive summary (2-3 sentences)
+4. **Action Items**: Tasks mentioned with assignees (if any)
+5. **Key Concepts**: Main topics discussed
+6. **Overall Sentiment**: Score from -1.0 (very negative) to 1.0 (very positive)
 
-Return your response in JSON format with keys: summary, action_items, key_concepts, sentiment_score
+Emotions to use: happy, sad, angry, neutral, excited, confused, frustrated, surprised, concerned, supportive
 
-Transcript:
-{transcript_text}
+Return ONLY valid JSON in this exact format:
+{{
+    "summary": "...",
+    "action_items": [{{"task": "...", "assignee": "...", "status": "pending"}}],
+    "key_concepts": ["topic1", "topic2"],
+    "sentiment_score": 0.5,
+    "speakers": [
+        {{
+            "id": "Speaker 1",
+            "dominant_emotion": "neutral",
+            "segment_count": 5
+        }}
+    ],
+    "segment_emotions": [
+        {{
+            "segment_id": 0,
+            "speaker": "Speaker 1",
+            "emotion": "happy"
+        }}
+    ]
+}}
+
+Transcript with timestamps:
+{segments_text}
 
 JSON Response:"""
 
-            # Use the configured LLM model (default to gpt-3.5-turbo for cost efficiency)
-            model = os.getenv("LLM_MODEL", "openai/gpt-3.5-turbo")
+            # Use the configured LLM model
+            model_name = self._get_gpt_model_name()
             
             response = self.gpt_client.chat.completions.create(
-                model=model,
+                model=model_name,
                 messages=[
-                    {"role": "system", "content": "You are an AI meeting analyst. Provide structured, actionable insights from meeting transcripts."},
+                    {"role": "system", "content": "You are an expert conversation analyst. Identify speakers, detect emotions, and extract insights from transcripts. Always return valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Lower temperature for more consistent analysis
-                max_tokens=800  # Limit response size for cost control
+                temperature=0.3,
+                max_tokens=1500
             )
             
             # Extract and parse response
-            analysis_text = response.choices[0].message.content
+            analysis_text = response.choices[0].message.content.strip()
             
-            # Try to parse as JSON
+            # Remove markdown code blocks if present
+            if analysis_text.startswith("```"):
+                analysis_text = analysis_text.split("```")[1]
+                if analysis_text.startswith("json"):
+                    analysis_text = analysis_text[4:]
+                analysis_text = analysis_text.strip()
+            
+            # Parse JSON
             import json
             try:
                 analysis = json.loads(analysis_text)
-            except:
-                # If parsing fails, extract with fallback logic
-                print("Warning: Could not parse GPT response as JSON, using fallback")
+            except Exception as parse_error:
+                print(f"Warning: Could not parse GPT response as JSON: {parse_error}")
+                print(f"Response: {analysis_text[:200]}...")
                 analysis = {
-                    "summary": analysis_text[:500],  # First 500 chars
+                    "summary": analysis_text[:500] if len(analysis_text) > 0 else "Analysis failed",
                     "action_items": [],
                     "key_concepts": [],
-                    "sentiment_score": 0.0
+                    "sentiment_score": 0.0,
+                    "speakers": [],
+                    "segment_emotions": []
                 }
             
-            print(f"Analysis complete: {len(analysis.get('action_items', []))} action items found")
+            # Update original segments with speaker and emotion data
+            segment_emotions = analysis.get("segment_emotions", [])
+            for i, seg in enumerate(segments):
+                if i < len(segment_emotions):
+                    emotion_data = segment_emotions[i]
+                    seg["speaker"] = emotion_data.get("speaker", "Speaker 1")
+                    seg["emotion"] = emotion_data.get("emotion", "neutral")
+                else:
+                    # Fallback if GPT didn't provide enough segment data
+                    seg["speaker"] = "Speaker 1"
+                    seg["emotion"] = "neutral"
+            
+            print(f"Analysis complete: {len(analysis.get('speakers', []))} speakers, {len(analysis.get('action_items', []))} action items")
             
             return {
                 "summary": analysis.get("summary", ""),
                 "action_items": analysis.get("action_items", []),
                 "key_concepts": analysis.get("key_concepts", []),
-                "sentiment_score": float(analysis.get("sentiment_score", 0.0))
+                "sentiment_score": float(analysis.get("sentiment_score", 0.0)),
+                "speakers": analysis.get("speakers", []),
+                "segments": segments  # Return updated segments with speaker/emotion
             }
         
         except Exception as e:
             print(f"Error in analyze_transcript: {str(e)}")
             traceback.print_exc()
-            # Return empty analysis on error
+            # Return basic analysis with default speaker/emotion
+            for seg in segments:
+                if "speaker" not in seg:
+                    seg["speaker"] = "Speaker 1"
+                if "emotion" not in seg:
+                    seg["emotion"] = "neutral"
+            
             return {
                 "summary": f"Analysis failed: {str(e)}",
                 "action_items": [],
                 "key_concepts": [],
-                "sentiment_score": 0.0
+                "sentiment_score": 0.0,
+                "speakers": [{"id": "Speaker 1", "dominant_emotion": "neutral", "segment_count": len(segments)}],
+                "segments": segments
             }
     
     def process_transcription(
@@ -184,7 +335,8 @@ JSON Response:"""
         user_id: str, 
         audio_file_path: str,
         title: Optional[str] = None,
-        db: Session = None
+        db: Session = None,
+        transcription_id: Optional[str] = None  # NEW: Accept existing ID
     ) -> Transcription:
         """
         Full pipeline: transcribe audio → analyze → save to database.
@@ -194,6 +346,7 @@ JSON Response:"""
             audio_file_path: Path to uploaded audio file
             title: Optional custom title (defaults to filename)
             db: Database session
+            transcription_id: Optional existing transcription ID to update
         
         Returns:
             Saved Transcription object
@@ -215,25 +368,69 @@ JSON Response:"""
                 transcription_result["segments"]
             )
             
-            # Step 3: Save to database
+            # Step 3: Save to database (UPDATE existing or CREATE new)
             print(f"[3/3] Saving to database...")
-            transcription = Transcription(
-                user_id=user_id,
-                title=title,
-                audio_file_path=audio_file_path,
-                transcript_text=transcription_result["transcript_text"],
-                segments=transcription_result["segments"],
-                summary=analysis_result["summary"],
-                action_items=analysis_result["action_items"],
-                key_concepts=analysis_result["key_concepts"],
-                sentiment_score=analysis_result["sentiment_score"],
-                processed=True  # Mark as successfully processed
-            )
             
-            if db:
-                db.add(transcription)
-                db.commit()
-                db.refresh(transcription)
+            # Use segments from analysis (which include speaker and emotion data)
+            enriched_segments = analysis_result.get("segments", transcription_result["segments"])
+            
+            if db and transcription_id:
+                # UPDATE existing record
+                transcription = db.query(Transcription).filter(
+                    Transcription.id == transcription_id
+                ).first()
+                
+                if transcription:
+                    # Update existing record
+                    transcription.transcript_text = transcription_result["transcript_text"]
+                    transcription.segments = enriched_segments  # Use speaker-enriched segments
+                    transcription.summary = analysis_result["summary"]
+                    transcription.action_items = analysis_result["action_items"]
+                    transcription.key_concepts = analysis_result["key_concepts"]
+                    transcription.sentiment_score = analysis_result["sentiment_score"]
+                    transcription.processed = True
+                    
+                    db.commit()
+                    db.refresh(transcription)
+                    print(f"✓ Updated existing transcription: {transcription.id}")
+                else:
+                    # Fallback: ID not found, create new
+                    print(f"WARNING: Transcription ID {transcription_id} not found, creating new record")
+                    transcription = Transcription(
+                        user_id=user_id,
+                        title=title,
+                        audio_file_path=audio_file_path,
+                        transcript_text=transcription_result["transcript_text"],
+                        segments=enriched_segments,
+                        summary=analysis_result["summary"],
+                        action_items=analysis_result["action_items"],
+                        key_concepts=analysis_result["key_concepts"],
+                        sentiment_score=analysis_result["sentiment_score"],
+                        processed=True
+                    )
+                    db.add(transcription)
+                    db.commit()
+                    db.refresh(transcription)
+            else:
+                # CREATE new record (no ID provided)
+                transcription = Transcription(
+                    user_id=user_id,
+                    title=title,
+                    audio_file_path=audio_file_path,
+                    transcript_text=transcription_result["transcript_text"],
+                    segments=enriched_segments,
+                    summary=analysis_result["summary"],
+                    action_items=analysis_result["action_items"],
+                    key_concepts=analysis_result["key_concepts"],
+                    sentiment_score=analysis_result["sentiment_score"],
+                    processed=True
+                )
+                
+                if db:
+                    db.add(transcription)
+                    db.commit()
+                    db.refresh(transcription)
+
             
             print(f"✓ Transcription complete: {transcription.id}")
             return transcription

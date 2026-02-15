@@ -4,25 +4,58 @@ from sqlalchemy.orm import Session
 from app.models.models import FormSubmission, User
 from app.services.rag_service import rag_service  # Reuse RAG for embeddings/LLM access if needed, or direct OpenAI
 import json
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI, AsyncOpenAI, AzureOpenAI, AsyncAzureOpenAI
+from app.core.config import settings
 import os
 
 class FormService:
     def __init__(self):
-        # Initialize OpenAI clients
-        # Ensure OPENAI_API_KEY is set in env
-        api_key = os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_BASE_URL")
+        """Initialize OpenAI or Azure OpenAI clients based on MODEL_PROVIDER."""
+        provider = settings.MODEL_PROVIDER
         
-        if not api_key:
-            print("WARNING: OPENAI_API_KEY not found in environment")
-        elif api_key.startswith("sk-or-"):
-            print("INFO: OpenRouter key detected. Setting base_url to https://openrouter.ai/api/v1")
-            if not base_url:
-                base_url = "https://openrouter.ai/api/v1"
-
-        self.openai_client = OpenAI(api_key=api_key, base_url=base_url) 
-        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        if provider == "azure_openai":
+            azure_key = settings.AZURE_OPENAI_API_KEY
+            azure_endpoint = settings.AZURE_OPENAI_ENDPOINT
+            azure_version = settings.AZURE_OPENAI_API_VERSION
+            
+            if not azure_key or not azure_endpoint:
+                raise ValueError("Azure OpenAI configuration incomplete. Please set AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in .env")
+            
+            self.openai_client = AzureOpenAI(
+                api_key=azure_key,
+                azure_endpoint=azure_endpoint,
+                api_version=azure_version
+            )
+            self.async_client = AsyncAzureOpenAI(
+                api_key=azure_key,
+                azure_endpoint=azure_endpoint,
+                api_version=azure_version
+            )
+            print(f"Forms: Using Azure OpenAI at {azure_endpoint}")
+        
+        elif provider == "openrouter":
+            or_key = os.getenv("OPENROUTER_API_KEY")
+            if not or_key:
+                or_key = os.getenv("OPENAI_API_KEY")  # Fallback
+            
+            self.openai_client = OpenAI(
+                api_key=or_key,
+                base_url="https://openrouter.ai/api/v1"
+            )
+            self.async_client = AsyncOpenAI(
+                api_key=or_key,
+                base_url="https://openrouter.ai/api/v1"
+            )
+            print("Forms: Using OpenRouter")
+        
+        else:  # Default to OpenAI
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if not openai_key:
+                print("WARNING: OPENAI_API_KEY not found")
+            
+            self.openai_client = OpenAI(api_key=openai_key)
+            self.async_client = AsyncOpenAI(api_key=openai_key)
+            print("Forms: Using OpenAI")
     async def autofill_form(self, form_id: str, fields: List[Dict], user_id: str, db: Session) -> Dict[str, str]:
         """
         Uses AI to intelligently fill form fields based on user profile and past context.
@@ -62,7 +95,7 @@ class FormService:
         ai_data = {}
 
         try:
-            model_name = os.getenv("LLM_MODEL", "openai/gpt-3.5-turbo") # Default to cheaper model
+            model_name = os.getenv("LLM_MODEL", "gpt-3.5-turbo")  # Default to cheaper model
             response = self.openai_client.chat.completions.create(
                 model=model_name,
                 messages=[
@@ -168,7 +201,7 @@ class FormService:
 
         try:
             # Using stable sync client
-            model_name = os.getenv("LLM_MODEL", "openai/gpt-3.5-turbo")
+            model_name = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
             response = self.openai_client.chat.completions.create(
                 model=model_name,
                 messages=messages,
