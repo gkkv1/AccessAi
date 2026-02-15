@@ -106,7 +106,7 @@ const INITIAL_ACTION_ITEMS: ActionItem[] = [
   { id: 'a4', text: "Refactor Navigation Components", assignee: "Dev Team", isCompleted: false },
 ];
 
-const API_BASE_URL = import.meta.env.ITE_API_URL_2 || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL_2 || 'http://localhost:8000';
 
 export default function TranscribePage() {
   const [searchParams] = useSearchParams();
