@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => ({
     },
     // Disable host checking to allow ngrok and other proxies
     cors: true,
-    allowedHosts: ['all', "savingly-flappy-miah.ngrok-free.dev"], // Allow all hosts (including ngrok URLs)
+    allowedHosts: ['all'], // Allow all hosts (including ngrok URLs)
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
