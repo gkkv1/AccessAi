@@ -28,14 +28,15 @@ import {
   AlertTriangle,
   Zap,
   Hand,
-  Loader2
+  Loader2,
+  XCircle
 } from 'lucide-react';
 import { useFocus } from '@/contexts/FocusContext';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { endpoints } from '@/lib/api';
+import { endpoints, API_BASE_URL } from '@/lib/api';
 import { UploadProgressOverlay } from '@/components/UploadProgressOverlay';
 
 // --- Types ---
@@ -67,8 +68,57 @@ interface TranscriptionData {
   key_concepts: any[];
   sentiment_score: number | null;
   processed: boolean;
+  source_url?: string;
   created_at: string;
 }
+
+// --- Utilities ---
+const getYouTubeId = (url: string): string | null => {
+  if (!url) return null;
+  // Handle various YouTube URL formats
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/|live\/)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+
+  if (match && match[2].length === 11) {
+    return match[2];
+  }
+
+  // Alternative match for cases like youtu.be/ID
+  const shortMatch = url.match(/youtu\.be\/([^#\&\?]*)/);
+  if (shortMatch && shortMatch[1].length === 11) {
+    return shortMatch[1];
+  }
+
+  return null;
+};
+
+const getEmotionColor = (emotion?: string) => {
+  if (!emotion) return "text-slate-600 border-slate-200 bg-slate-50";
+  const e = emotion.toLowerCase();
+
+  if (e.includes('happy') || e.includes('joy') || e.includes('positive') || e.includes('excited'))
+    return "text-green-600 border-green-200 bg-green-50";
+
+  if (e.includes('sad') || e.includes('disappoint') || e.includes('unhappy') || e.includes('depress'))
+    return "text-blue-600 border-blue-200 bg-blue-50";
+
+  if (e.includes('angr') || e.includes('hostile') || e.includes('annoy') || e.includes('frustrat') || e.includes('furi'))
+    return "text-red-600 border-red-200 bg-red-50";
+
+  if (e.includes('fear') || e.includes('anxious') || e.includes('nervous') || e.includes('worr'))
+    return "text-purple-600 border-purple-200 bg-purple-50";
+
+  if (e.includes('surpris') || e.includes('shock') || e.includes('amaz'))
+    return "text-yellow-700 border-yellow-200 bg-yellow-50";
+
+  if (e.includes('disgust') || e.includes('revol'))
+    return "text-orange-600 border-orange-200 bg-orange-50";
+
+  if (e.includes('serious') || e.includes('formal') || e.includes('neutral') || e.includes('calm'))
+    return "text-indigo-600 border-indigo-200 bg-indigo-50";
+
+  return "text-slate-600 border-slate-200 bg-slate-50";
+};
 
 // --- Mock Data: Q1 Compliance Training ---
 const MEETING_METADATA = {
@@ -106,7 +156,6 @@ const INITIAL_ACTION_ITEMS: ActionItem[] = [
   { id: 'a4', text: "Refactor Navigation Components", assignee: "Dev Team", isCompleted: false },
 ];
 
-const API_BASE_URL = import.meta.env.VITE_API_URL_2 || 'http://localhost:8000';
 
 export default function TranscribePage() {
   const [searchParams] = useSearchParams();
@@ -281,6 +330,7 @@ export default function TranscribePage() {
 
             setTranscript(transformedSegments);
             setActionItems(transformedActionItems);
+            setKeyConcepts(result.key_concepts || []);
             setElapsedTime(0);
             setIsMeetingActive(true);
             setIsUploading(false);
@@ -364,7 +414,7 @@ export default function TranscribePage() {
     setElapsedTime(0);
     setCurrentCaption(null);
     setTranscriptionData(null);
-    navigate('?', { replace: true });
+    navigate('/transcribed-content');
   };
 
   // Fetch transcription from URL parameter
@@ -490,10 +540,10 @@ export default function TranscribePage() {
 
       // Cleanup old URL
       return () => {
-        if (vttUrl) URL.revokeObjectURL(vttUrl);
+        URL.revokeObjectURL(url);
       };
     }
-  }, [transcript, transcriptionData, vttUrl]);
+  }, [transcript, transcriptionData]);
 
   // Sync button state with native video controls
   useEffect(() => {
@@ -583,11 +633,30 @@ export default function TranscribePage() {
 
   const handleExport = (type: 'PDF' | 'TXT' | 'SRT') => {
     if (type === 'TXT') {
-      // Generate text content with emotions in square brackets
-      let textContent = 'TRANSCRIPT\n';
+      // Generate text content with summary and key concepts
+      let textContent = `TRANSCRIPT ANALYSIS: ${transcriptionData?.title || MEETING_METADATA.title}\n`;
       textContent += '='.repeat(50) + '\n\n';
 
-      transcript.forEach((segment, index) => {
+      if (transcriptionData?.summary) {
+        textContent += 'EXECUTIVE SUMMARY\n';
+        textContent += '-'.repeat(20) + '\n';
+        textContent += transcriptionData.summary + '\n\n';
+      }
+
+      if (keyConcepts && keyConcepts.length > 0) {
+        textContent += 'KEY CONCEPTS\n';
+        textContent += '-'.repeat(20) + '\n';
+        keyConcepts.forEach((concept: any, i) => {
+          const text = typeof concept === 'string' ? concept : (concept.text || concept.concept || 'Concept');
+          textContent += `${i + 1}. ${text}\n`;
+        });
+        textContent += '\n';
+      }
+
+      textContent += 'FULL TRANSCRIPT\n';
+      textContent += '-'.repeat(20) + '\n\n';
+
+      transcript.forEach((segment) => {
         const timestamp = `[${formatTime(segment.start)} - ${formatTime(segment.end)}]`;
         const emotion = segment.emotion ? ` [${segment.emotion.toUpperCase()}]` : '';
         textContent += `${timestamp}${emotion}\n`;
@@ -628,8 +697,44 @@ export default function TranscribePage() {
       // Title
       doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text('TRANSCRIPT', margin, yPosition);
-      yPosition += lineHeight + 3;
+      doc.text(transcriptionData?.title || MEETING_METADATA.title, margin, yPosition);
+      yPosition += 10;
+
+      // Summary if exists
+      if (transcriptionData?.summary) {
+        doc.setFontSize(14);
+        doc.text('Executive Summary', margin, yPosition);
+        yPosition += lineHeight;
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        const summaryLines = doc.splitTextToSize(transcriptionData.summary, pageWidth - margin * 2);
+        doc.text(summaryLines, margin, yPosition);
+        yPosition += (summaryLines.length * lineHeight) + 8;
+      }
+
+      // Key Concepts if exists
+      if (keyConcepts && keyConcepts.length > 0) {
+        if (yPosition > pageHeight - 40) { doc.addPage(); yPosition = margin; }
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Key Concepts', margin, yPosition);
+        yPosition += lineHeight;
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        keyConcepts.forEach((concept: any, i) => {
+          const text = typeof concept === 'string' ? concept : (concept.text || concept.concept || 'Concept');
+          doc.text(`${i + 1}. ${text}`, margin + 5, yPosition);
+          yPosition += lineHeight;
+        });
+        yPosition += 8;
+      }
+
+      // Transcript Header
+      if (yPosition > pageHeight - 30) { doc.addPage(); yPosition = margin; }
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Transcript', margin, yPosition);
+      yPosition += lineHeight;
 
       // Draw separator line
       doc.setLineWidth(0.5);
@@ -720,19 +825,6 @@ export default function TranscribePage() {
   };
 
   // --- Render ---
-  // Debug logging
-  if (transcript.length > 0) {
-    console.log('=== SEGMENT TIMING DEBUG ===');
-    console.log('Video duration:', document?.querySelector('video')?.duration, 'seconds');
-    console.log('Total segments:', transcript.length);
-    console.log('First 3 segments:');
-    transcript.slice(0, 3).forEach((seg, i) => {
-      console.log(`  [${i}] ${seg.start}s-${seg.end}s: "${seg.text.substring(0, 50)}..."`);
-    });
-    console.log('Last segment:', transcript[transcript.length - 1]?.end, 'seconds');
-    console.log('===========================');
-  }
-
   // Loading state when fetching from URL
   if (isLoadingTranscript) {
     return (
@@ -827,6 +919,7 @@ export default function TranscribePage() {
             step={uploadProgress.step}
             message={uploadProgress.message}
             details={uploadProgress.details}
+            onClose={exitToLanding}
           />
         )}
       </main>
@@ -841,28 +934,26 @@ export default function TranscribePage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            {viewMode === 'review' && (
-              <Button variant="ghost" size="sm" onClick={exitToLanding} className="-ml-2 mr-1">
-                <Check className="h-4 w-4 mr-1" /> Finish Review
-              </Button>
-            )}
-            {viewMode === 'live' && (
-              <Button variant="ghost" size="sm" onClick={exitToLanding} className="-ml-2 mr-1">
-                End Session
-              </Button>
-            )}
+            {/* Session control moved to singular Close button */}
 
             <h1 className="text-xl md:text-2xl font-bold text-foreground">
-              {viewMode === 'live' ? "Live Meeting" : "Analysis: Q1 Compliance Training"}
+              {viewMode === 'live' ? "Live Meeting" : `Analysis: ${transcriptionData?.title || 'Recording'}`}
             </h1>
             {viewMode === 'live' && (
               <Badge variant={isMeetingActive ? "destructive" : "secondary"} className="animate-pulse">
                 {isMeetingActive ? "REC" : "PAUSED"}
               </Badge>
             )}
+
+            <Button variant="ghost" size="icon" onClick={exitToLanding} className="ml-auto md:hidden">
+              <MoreVertical className="h-5 w-5" />
+            </Button>
           </div>
         </div>
         <div className="flex gap-2 items-center">
+          <Button variant="outline" size="sm" onClick={exitToLanding} className="hidden md:flex gap-1.5 hover:bg-destructive/10 hover:text-destructive transition-colors">
+            <XCircle className="h-4 w-4" /> Close
+          </Button>
           {/* Sign Language Toggle */}
           {viewMode === 'live' && (
             <div className="hidden md:flex items-center space-x-2 mr-2 bg-muted/20 p-1.5 rounded-lg border">
@@ -913,41 +1004,65 @@ export default function TranscribePage() {
             <div className="relative bg-black rounded-xl overflow-hidden h-full shadow-lg group">
               {transcriptionData ? (
                 /* Real Video Player */
-                <video
-                  ref={videoRef}
-                  src={`${API_BASE_URL}/${transcriptionData.audio_file_path}`}
-                  controls
-                  crossOrigin="anonymous"
-                  className="w-full h-full object-contain"
-                  onLoadedMetadata={() => {
-                    // Automatically enable captions when video loads
-                    if (videoRef.current) {
-                      const tracks = videoRef.current.textTracks;
-                      if (tracks && tracks.length > 0) {
-                        tracks[0].mode = 'showing'; // Force captions to show
-                        console.log('Captions enabled automatically');
-                      }
+                <div className="w-full h-full">
+                  {(() => {
+                    const youtubeId = getYouTubeId(transcriptionData.source_url || '') ||
+                      getYouTubeId(transcriptionData.audio_file_path || '');
+
+                    if (youtubeId) {
+                      return (
+                        <iframe
+                          className="w-full h-full"
+                          src={`https://www.youtube.com/embed/${youtubeId}`}
+                          title="YouTube video player"
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                        ></iframe>
+                      );
                     }
-                  }}
-                  onError={(e) => {
-                    console.error('Video load error:', e);
-                    toast.error('Video failed to load', {
-                      description: 'Check that the video file exists on the server'
-                    });
-                  }}
-                >
-                  {/* Native Video Subtitles/Captions */}
-                  {vttUrl && (
-                    <track
-                      kind="captions"
-                      label="English"
-                      srcLang="en"
-                      src={vttUrl}
-                      default
-                    />
-                  )}
-                  Your browser does not support the video tag.
-                </video>
+
+                    return (
+                      <video
+                        ref={videoRef}
+                        src={transcriptionData.audio_file_path.startsWith('http')
+                          ? transcriptionData.audio_file_path
+                          : `${API_BASE_URL.replace('/api/v1', '')}/${transcriptionData.audio_file_path}`}
+                        controls
+                        crossOrigin="anonymous"
+                        className="w-full h-full object-contain"
+                        onLoadedMetadata={() => {
+                          // Automatically enable captions when video loads
+                          if (videoRef.current) {
+                            const tracks = videoRef.current.textTracks;
+                            if (tracks && tracks.length > 0) {
+                              tracks[0].mode = 'showing'; // Force captions to show
+                              console.log('Captions enabled automatically');
+                            }
+                          }
+                        }}
+                        onError={(e) => {
+                          console.error('Video load error:', e);
+                          toast.error('Video failed to load', {
+                            description: 'Check that the video file exists on the server'
+                          });
+                        }}
+                      >
+                        {/* Native Video Subtitles/Captions */}
+                        {vttUrl && (
+                          <track
+                            kind="captions"
+                            label="English"
+                            srcLang="en"
+                            src={vttUrl}
+                            default
+                          />
+                        )}
+                        Your browser does not support the video tag.
+                      </video>
+                    );
+                  })()}
+                </div>
               ) : (
                 /* Mock Visualizer for Live/Demo Mode */
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
@@ -1079,7 +1194,7 @@ export default function TranscribePage() {
                             <span className="font-semibold text-sm text-primary">{segment.speaker}</span>
                             {/* Emotion Badge */}
                             {segment.emotion && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 h-5">
+                              <Badge variant="outline" className={cn("text-[10px] px-1.5 h-5", getEmotionColor(segment.emotion))}>
                                 {segment.emotion}
                               </Badge>
                             )}
@@ -1120,6 +1235,23 @@ export default function TranscribePage() {
 
         {/* Bottom Row: Insights (Full Width) */}
         <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6", isFocusMode && "hidden")}>
+          {/* Summary */}
+          <Card className="p-5 shadow-sm lg:col-span-full border-t-4 border-t-blue-500/20">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h3 className="font-semibold text-lg">Executive Summary</h3>
+            </div>
+            <div className="text-foreground/80 leading-relaxed">
+              {transcriptionData?.summary ? (
+                <p className="whitespace-pre-line">{transcriptionData.summary}</p>
+              ) : (
+                <p className="text-muted-foreground italic text-center py-4">No summary available</p>
+              )}
+            </div>
+          </Card>
+
           {/* Key Concepts */}
 
 

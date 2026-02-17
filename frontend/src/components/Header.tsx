@@ -31,7 +31,7 @@ const navItems = [
   { label: 'Search', href: '/search', icon: Search },
   { label: 'Documents', href: '/documents', icon: FileText },
   { label: 'Forms', href: '/forms', icon: FormInput },
-  { label: 'Transcribe', href: '/transcribe', icon: Mic },
+  { label: 'Transcribed Content', href: '/transcribed-content', icon: Mic },
 ];
 
 export function Header() {

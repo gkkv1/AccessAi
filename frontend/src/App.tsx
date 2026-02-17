@@ -10,6 +10,7 @@ import SearchPage from "./pages/SearchPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import FormsPage from "./pages/FormsPage";
 import TranscribePage from "./pages/TranscribePage";
+import TranscribedContentPage from "./pages/TranscribedContentPage";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { FocusProvider } from "@/contexts/FocusContext";
@@ -49,6 +50,7 @@ const App = () => (
                     <Route path="/documents" element={<DocumentsPage />} />
                     <Route path="/forms" element={<FormsPage />} />
                     <Route path="/transcribe" element={<TranscribePage />} />
+                    <Route path="/transcribed-content" element={<TranscribedContentPage />} />
                     <Route path="/dashboard" element={<Navigate to="/" replace />} />
                   </Route>
 

@@ -8,6 +8,8 @@ This service integrates with:
 
 import os
 import traceback
+import requests
+import tempfile
 from typing import Dict, List, Optional
 from openai import OpenAI, AzureOpenAI
 from sqlalchemy.orm import Session
@@ -96,13 +98,14 @@ class TranscriptionService:
         Transcribe audio file using OpenAI Whisper API.
         
         Args:
-            audio_file_path: Path to the audio file (MP3, WAV, MP4, etc.)
+            audio_file_path: Path to the audio file (MP3, WAV) or a URL.
         
         Returns:
             Dictionary containing:
             - transcript_text: Full text transcript
             - segments: List of timestamped segments with speaker info
         """
+        temp_file_path = None
         try:
             # Check if Whisper client is available
             if not self.whisper_client:
@@ -115,9 +118,108 @@ class TranscriptionService:
                 else:
                     raise Exception("Whisper transcription unavailable. Please set a valid OpenAI API key in your .env file.")
             
-            print(f"Transcribing audio file: {audio_file_path}")
+            # Step 1: Download if it's a URL
+            actual_path = audio_file_path
+            if audio_file_path.startswith(("http://", "https://")):
+                print(f"Downloading audio from URL: {audio_file_path}")
+                
+                # Ensure uploads directory exists
+                uploads_dir = "uploads"
+                os.makedirs(uploads_dir, exist_ok=True)
+                
+                # Check for YouTube URLs
+                is_youtube = any(y in audio_file_path.lower() for y in ["youtube.com/", "youtu.be/", "youtube.com/shorts/"])
+                
+                if is_youtube:
+                    print("YouTube link detected. Extracting audio stream...")
+                    try:
+                        import yt_dlp
+                        import json
+                        
+                        # Generate a unique filename for the YouTube audio
+                        import uuid
+                        unique_id = str(uuid.uuid4())
+                        outtmpl = os.path.join(uploads_dir, f"youtube_{unique_id}.%(ext)s")
+                        
+                        # Best audio format, constrained to sizes Whisper likes
+                        ydl_opts = {
+                            'format': 'bestaudio/best',
+                            'noplaylist': True,
+                            'quiet': True,
+                            'no_warnings': True,
+                            'outtmpl': outtmpl,
+                        }
+                        
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(audio_file_path, download=True)
+                            final_filename = ydl.prepare_filename(info)
+                            actual_path = final_filename
+                            local_path = actual_path
+                            print(f"YouTube audio downloaded to persistent path: {actual_path}")
+                    except Exception as yt_err:
+                        print(f"YouTube extraction failed: {str(yt_err)}")
+                        raise Exception(f"Failed to extract audio from YouTube: {str(yt_err)}")
+                
+                else:
+                    # Standard direct file download logic
+                    response = requests.get(audio_file_path, stream=True, timeout=30)
+                    if response.status_code != 200:
+                        raise Exception(f"Failed to download audio from URL: {response.status_code}")
+                    
+                    # Determine extension from Content-Type or URL
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    print(f"URL Content-Type: {content_type}")
+                    
+                    # Check for HTML content (common mistake if user pastes a UI URL)
+                    if "text/html" in content_type:
+                        raise Exception("The provided URL points to a web page (HTML), not a direct video or audio file. Please provide a direct link to the media file.")
+
+                    # Map common content types to extensions
+                    extension_map = {
+                        "audio/mpeg": ".mp3",
+                        "audio/mp3": ".mp3",
+                        "audio/wav": ".wav",
+                        "audio/x-wav": ".wav",
+                        "audio/mp4": ".m4a",
+                        "audio/x-m4a": ".m4a",
+                        "audio/webm": ".webm",
+                        "audio/ogg": ".ogg",
+                        "video/mp4": ".mp4",
+                        "video/mpeg": ".mpeg",
+                        "video/webm": ".webm",
+                        "application/octet-stream": None # Fallback to URL parsing
+                    }
+                    
+                    ext = extension_map.get(content_type.split(';')[0])
+                    
+                    if not ext:
+                        # Fallback to parsing the URL path
+                        from urllib.parse import urlparse
+                        path = urlparse(audio_file_path).path
+                        ext = os.path.splitext(path)[1].lower()
+                    
+                    # Final default if still no extension
+                    if not ext or len(ext) > 5:
+                        ext = ".mp3"
+                    
+                    print(f"Detected extension: {ext}")
+                    
+                    import uuid
+                    unique_id = str(uuid.uuid4())
+                    final_filename = os.path.join(uploads_dir, f"download_{unique_id}{ext}")
+                    
+                    with open(final_filename, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                    
+                    actual_path = final_filename
+                    local_path = actual_path
+                    print(f"Media downloaded to persistent path: {actual_path}")
+
+            print(f"Transcribing audio file: {actual_path}")
             
-            with open(audio_file_path, "rb") as audio_file:
+            with open(actual_path, "rb") as audio_file:
                 # Use provider-specific model name
                 if settings.MODEL_PROVIDER == "azure_openai":
                     model_name = settings.AZURE_WHISPER_DEPLOYMENT
@@ -176,13 +278,22 @@ class TranscriptionService:
             
             return {
                 "transcript_text": full_text,
-                "segments": segments
+                "segments": segments,
+                "local_path": local_path
             }
         
         except Exception as e:
             print(f"Error in transcribe_audio: {str(e)}")
             traceback.print_exc()
             raise Exception(f"Transcription failed: {str(e)}")
+        finally:
+            # Cleanup temp file if created
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                    print(f"Deleted temp file: {temp_file_path}")
+                except:
+                    pass
     
     def analyze_transcript(self, transcript_text: str, segments: List[Dict]) -> Dict:
         """
@@ -388,6 +499,7 @@ JSON Response:"""
                     transcription.action_items = analysis_result["action_items"]
                     transcription.key_concepts = analysis_result["key_concepts"]
                     transcription.sentiment_score = analysis_result["sentiment_score"]
+                    transcription.audio_file_path = transcription_result["local_path"]
                     transcription.processed = True
                     
                     db.commit()
@@ -399,7 +511,7 @@ JSON Response:"""
                     transcription = Transcription(
                         user_id=user_id,
                         title=title,
-                        audio_file_path=audio_file_path,
+                        audio_file_path=transcription_result["local_path"],
                         transcript_text=transcription_result["transcript_text"],
                         segments=enriched_segments,
                         summary=analysis_result["summary"],
@@ -416,7 +528,7 @@ JSON Response:"""
                 transcription = Transcription(
                     user_id=user_id,
                     title=title,
-                    audio_file_path=audio_file_path,
+                    audio_file_path=transcription_result["local_path"],
                     transcript_text=transcription_result["transcript_text"],
                     segments=enriched_segments,
                     summary=analysis_result["summary"],

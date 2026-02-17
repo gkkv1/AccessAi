@@ -26,6 +26,7 @@ class TranscriptionResponse(BaseModel):
     key_concepts: list
     sentiment_score: float | None
     processed: bool
+    source_url: str | None = None
     created_at: str
     
     class Config:
@@ -36,6 +37,11 @@ class UploadResponse(BaseModel):
     id: str
     message: str
     status: str
+
+
+class URLRequest(BaseModel):
+    url: str
+    title: str | None = None
 
 
 # Background task for processing transcription
@@ -151,6 +157,95 @@ async def upload_audio(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
+@router.post("/url", response_model=UploadResponse)
+async def transcribe_url(
+    request: URLRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Provide a video URL for transcription.
+    
+    - Accepts: Valid video/audio URL
+    - Processing happens in background
+    """
+    try:
+        # Simple URL validation
+        if not request.url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="Invalid URL. Must start with http:// or https://")
+            
+        transcription_id = str(uuid.uuid4())
+        title = request.title or "URL Video"
+        
+        # Create initial database record with URL in audio_file_path
+        transcription = Transcription(
+            id=transcription_id,
+            user_id=current_user.id,
+            title=title,
+            audio_file_path=request.url,
+            source_url=request.url,  # Save original URL
+            transcript_text="Processing URL content...",
+            segments=[],
+            summary=None,
+            action_items=[],
+            key_concepts=[],
+            sentiment_score=None,
+            processed=False
+        )
+        
+        db.add(transcription)
+        db.commit()
+        
+        # Trigger background processing
+        background_tasks.add_task(
+            process_transcription_task,
+            transcription_id,
+            str(current_user.id),
+            request.url,
+            title,
+            db
+        )
+        
+        return UploadResponse(
+            id=transcription_id,
+            message="URL added successfully. Processing in background.",
+            status="processing"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add URL: {str(e)}")
+
+
+@router.get("/list", response_model=List[TranscriptionResponse])
+async def list_transcriptions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all transcriptions for the current user."""
+    transcriptions = db.query(Transcription).filter(
+        Transcription.user_id == current_user.id
+    ).order_by(Transcription.created_at.desc()).all()
+    
+    return [
+        TranscriptionResponse(
+            id=str(t.id),
+            title=t.title or "",
+            audio_file_path=t.audio_file_path,
+            transcript_text=t.transcript_text or "",
+            segments=t.segments or [],
+            summary=t.summary,
+            action_items=t.action_items or [],
+            key_concepts=t.key_concepts or [],
+            sentiment_score=t.sentiment_score,
+            processed=t.processed or False,
+            source_url=t.source_url,
+            created_at=t.created_at.isoformat() if t.created_at else ""
+        )
+        for t in transcriptions
+    ]
+
+
 @router.get("/{transcription_id}", response_model=TranscriptionResponse)
 async def get_transcription(
     transcription_id: str,
@@ -177,36 +272,9 @@ async def get_transcription(
         key_concepts=transcription.key_concepts or [],
         sentiment_score=transcription.sentiment_score,
         processed=transcription.processed or False,
+        source_url=transcription.source_url,
         created_at=transcription.created_at.isoformat() if transcription.created_at else ""
     )
-
-
-@router.get("/list", response_model=List[TranscriptionResponse])
-async def list_transcriptions(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """List all transcriptions for the current user."""
-    transcriptions = db.query(Transcription).filter(
-        Transcription.user_id == current_user.id
-    ).order_by(Transcription.created_at.desc()).all()
-    
-    return [
-        TranscriptionResponse(
-            id=str(t.id),
-            title=t.title or "",
-            audio_file_path=t.audio_file_path,
-            transcript_text=t.transcript_text or "",
-            segments=t.segments or [],
-            summary=t.summary,
-            action_items=t.action_items or [],
-            key_concepts=t.key_concepts or [],
-            sentiment_score=t.sentiment_score,
-            processed=t.processed or False,
-            created_at=t.created_at.isoformat() if t.created_at else ""
-        )
-        for t in transcriptions
-    ]
 
 
 @router.post("/analyze-text", response_model=TranscriptionResponse)

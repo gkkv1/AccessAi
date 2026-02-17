@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 export const api = axios.create({
     baseURL: API_BASE_URL,
@@ -135,6 +135,14 @@ export const endpoints = {
                 title: title || 'Browser Transcription'
             }
         });
+        return response.data;
+    },
+
+    addVideoUrl: async (url: string, title?: string) => {
+        const response = await api.post<{ id: string; message: string; status: string }>(
+            '/transcribe/url',
+            { url, title }
+        );
         return response.data;
     },
 

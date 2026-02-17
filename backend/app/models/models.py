@@ -104,6 +104,7 @@ class Transcription(Base):
     
     title = Column(String, nullable=True)  # User-friendly name for the transcription
     audio_file_path = Column(String, nullable=False)
+    source_url = Column(String, nullable=True)  # Store original URL (e.g. YouTube)
     transcript_text = Column(Text, nullable=False)  # Full raw transcript
     
     # Detailed segment data with timestamps and speakers
