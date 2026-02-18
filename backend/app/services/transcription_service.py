@@ -153,7 +153,6 @@ class TranscriptionService:
                             # Improved extraction options to bypass bot detection
                             'extractor_args': {
                                 'youtube': {
-                                    'player_client': ['ios'],
                                     'skip': ['webpage']
                                 }
                             },
