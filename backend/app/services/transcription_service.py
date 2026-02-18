@@ -120,6 +120,7 @@ class TranscriptionService:
             
             # Step 1: Download if it's a URL
             actual_path = audio_file_path
+            local_path = actual_path  # Initialize local_path for local files
             if audio_file_path.startswith(("http://", "https://")):
                 print(f"Downloading audio from URL: {audio_file_path}")
                 
@@ -142,13 +143,33 @@ class TranscriptionService:
                         outtmpl = os.path.join(uploads_dir, f"youtube_{unique_id}.%(ext)s")
                         
                         # Best audio format, constrained to sizes Whisper likes
+                        # Add bypass options for YouTube bot detection
                         ydl_opts = {
                             'format': 'bestaudio/best',
                             'noplaylist': True,
                             'quiet': True,
                             'no_warnings': True,
                             'outtmpl': outtmpl,
+                            # Improved extraction options to bypass bot detection
+                            'extractor_args': {
+                                'youtube': {
+                                    'player_client': ['ios'],
+                                    'skip': ['webpage']
+                                }
+                            },
+                            'http_headers': {
+                                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                'Accept-Language': 'en-us,en;q=0.5',
+                                'Sec-Fetch-Mode': 'navigate',
+                            }
                         }
+                        
+                        # Add cookies if path is provided in environment
+                        cookies_path = os.getenv("YOUTUBE_COOKIES_PATH")
+                        if cookies_path and os.path.exists(cookies_path):
+                            print(f"Using YouTube cookies from: {cookies_path}")
+                            ydl_opts['cookiefile'] = cookies_path
                         
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             info = ydl.extract_info(audio_file_path, download=True)
