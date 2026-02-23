@@ -26,7 +26,7 @@ class RagService:
             model_name=settings.LLM_MODEL, # Use configured model
             temperature=0,
             openai_api_base=base_url,
-            max_tokens=1000 # Limit output to avoid credit errors
+            max_tokens=500 # Limit output to avoid credit errors
         )
 
     async def ingest_document(self, db: Session, doc_id: str):
@@ -179,8 +179,13 @@ class RagService:
             HumanMessage(content=f"Context:\n{context_text}\n\nQuestion: {query}")
         ]
         
-        response = self.llm.invoke(messages)
-        return response.content
+        try:
+            response = self.llm.invoke(messages)
+            return response.content
+        except Exception as e:
+            if "402" in str(e):
+                return "I apologize, but I cannot answer right now due to insufficient AI credits."
+            return f"I encountered an error: {str(e)}"
 
     async def simplify(self, text: str) -> str:
         # Use GPT-4o to simplify text
@@ -188,7 +193,13 @@ class RagService:
             SystemMessage(content="You are an expert accessibility assistant. Rewrite the following text in Plain English (Grade 5 level). Use bullet points and simple headers."),
             HumanMessage(content=text)
         ]
-        response = self.llm.invoke(messages)
-        return response.content
+        try:
+            response = self.llm.invoke(messages)
+            return response.content
+        except Exception as e:
+            print(f"Simplify Error: {str(e)}")
+            if "402" in str(e):
+                return "Error: Insufficient AI credits. Please check your OpenRouter balance or contact support."
+            return f"Error analyzing text: {str(e)}"
 
 rag_service = RagService()
