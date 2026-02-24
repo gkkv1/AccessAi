@@ -21,13 +21,25 @@ class RagService:
             model="text-embedding-3-small",
             openai_api_base=base_url
         )
-        self.llm = ChatOpenAI(
-            openai_api_key=api_key,
-            model_name=settings.LLM_MODEL, # Use configured model
-            temperature=0,
-            openai_api_base=base_url,
-            max_tokens=500 # Limit output to avoid credit errors
-        )
+
+        if settings.MODEL_PROVIDER == "azure_openai":
+            from langchain_openai import AzureChatOpenAI
+            self.llm = AzureChatOpenAI(
+                api_key=settings.AZURE_OPENAI_API_KEY,
+                azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                api_version=settings.AZURE_OPENAI_API_VERSION,
+                azure_deployment=settings.AZURE_OPENAI_DEPLOYMENT,
+                temperature=0,
+                max_tokens=500
+            )
+        else:
+            self.llm = ChatOpenAI(
+                openai_api_key=api_key,
+                model_name=settings.LLM_MODEL, # Use configured model
+                temperature=0,
+                openai_api_base=base_url,
+                max_tokens=500 # Limit output to avoid credit errors
+            )
 
     async def ingest_document(self, db: Session, doc_id: str):
         """

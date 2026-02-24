@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
     AZURE_WHISPER_DEPLOYMENT: str = os.getenv("AZURE_WHISPER_DEPLOYMENT", "whisper")
     
+    # Azure Whisper Specific Keys
+    WISPER_OPEN_AI_KEY: Optional[str] = os.getenv("WISPER_OPEN_AI_KEY")
+    WISPER_OPEN_AI_ENDPOINT: Optional[str] = os.getenv("WISPER_OPEN_AI_ENDPOINT")
+    WISPER_OPEN_AI_VERSION: Optional[str] = os.getenv("WISPER_OPEN_AI_VERSION")
+    
     # Model Configuration
     MODEL_PROVIDER: str = os.getenv("MODEL_PROVIDER", "openai")  # openai, azure_openai, openrouter
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")

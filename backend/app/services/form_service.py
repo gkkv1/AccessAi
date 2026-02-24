@@ -95,7 +95,7 @@ class FormService:
         ai_data = {}
 
         try:
-            model_name = os.getenv("LLM_MODEL", "gpt-3.5-turbo")  # Default to cheaper model
+            model_name = settings.AZURE_OPENAI_DEPLOYMENT if settings.MODEL_PROVIDER == "azure_openai" else os.getenv("LLM_MODEL", "gpt-3.5-turbo")  # Default to cheaper model
             response = self.openai_client.chat.completions.create(
                 model=model_name,
                 messages=[
@@ -201,7 +201,7 @@ class FormService:
 
         try:
             # Using stable sync client
-            model_name = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+            model_name = settings.AZURE_OPENAI_DEPLOYMENT if settings.MODEL_PROVIDER == "azure_openai" else os.getenv("LLM_MODEL", "gpt-3.5-turbo")
             response = self.openai_client.chat.completions.create(
                 model=model_name,
                 messages=messages,

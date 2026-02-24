@@ -26,9 +26,9 @@ class TranscriptionService:
         # Whisper Client - Azure or OpenAI based on provider
         if provider == "azure_openai":
             # Use Azure Whisper
-            azure_key = settings.AZURE_OPENAI_API_KEY
-            azure_endpoint = settings.AZURE_OPENAI_ENDPOINT
-            azure_version = settings.AZURE_OPENAI_API_VERSION
+            azure_key = settings.WISPER_OPEN_AI_KEY
+            azure_endpoint = settings.WISPER_OPEN_AI_ENDPOINT
+            azure_version = settings.WISPER_OPEN_AI_VERSION
             
             if azure_key and azure_endpoint:
                 self.whisper_client = AzureOpenAI(
